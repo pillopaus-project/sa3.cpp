@@ -91,6 +91,24 @@ def main():
     save("after_in_proj", caps["after_in_proj"])
     save("after_resampling", caps["after_resampling"])
     save("audio", audio)
+
+    # ---- ENCODE path (audio -> latent), reference for the SAME-L encoder ----
+    enc_block = ae.encoder.layers[0]                   # [ResamplingBlock, Transpose, Linear, Transpose]
+    enc_block.mask_noise = 0.0
+    ecaps = {}
+    he1 = enc_block.register_forward_hook(lambda m, i, o: ecaps.__setitem__("enc_after_resampling", o))
+    he2 = ae.encoder.register_forward_hook(lambda m, i, o: ecaps.__setitem__("enc_latent", o))
+    with torch.no_grad():
+        L = args.frames * cfg["model"]["pretransform"]["config"]["downsampling_ratio"]  # 8*4096
+        in_audio = 0.3 * torch.randn(1, cfg["audio_channels"], L, device=dev)
+        z_enc = ae.encode(in_audio)                    # patchify -> encoder -> bottleneck.encode
+    he1.remove(); he2.remove()
+    # raw f32 of input audio in ggml [L, channels] layout (ne0=L time-fastest = audio[0] (ch,L) C-order)
+    np.ascontiguousarray(in_audio[0].detach().cpu().float().numpy()).tofile(out / "enc_audio.f32")
+    save("enc_after_resampling", ecaps["enc_after_resampling"])
+    save("enc_latent", ecaps["enc_latent"])
+    save("z_enc", z_enc)
+
     (out / "manifest.json").write_text(json.dumps({"frames": args.frames, "seed": args.seed,
                                                     "shapes": saved}, indent=2))
     print(f"manifest -> {out/'manifest.json'}")

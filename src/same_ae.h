@@ -93,6 +93,54 @@ inline ggml_tensor* same_block(ggml_context* ctx, const GgufModel& W, const std:
     return ggml_add(ctx, x, f);
 }
 
+// Encoder checkpoints (validation taps).
+struct EncodeOut { ggml_tensor* after_resampling; ggml_tensor* latent; ggml_tensor* z; };
+
+// Full encode: audio [L, audio_channels] -> latent z [latent, T] (T = L / 4096).
+// The mirror of same_decode: mapping conv runs first, each chunk packs `stride`
+// real frames + 1 new token, we keep the last (the new token's output).
+// pos: I32 [N=T*sub_chunk]; mask: [N, N] sliding-window band.
+inline EncodeOut same_encode(ggml_context* ctx, const GgufModel& W, ggml_tensor* audio,
+                             const SameConfig& c, int T, ggml_tensor* pos, ggml_tensor* mask) {
+    const int dim = c.dim, stride = c.output_seg;   // output_seg == stride == 16
+    const int ch = c.out_channels / c.patch_size;   // 2
+    const int Tp = stride * T;                       // patch-frames (= L / patch_size)
+    const int64_t N = (int64_t)T * c.sub_chunk;
+    EncodeOut out{};
+
+    // patchify: audio [L, ch] -> [patch, ch, Tp] -> [patch, Tp, ch] -> [patch*ch=512, Tp]
+    ggml_tensor* pa = ggml_reshape_3d(ctx, audio, c.patch_size, Tp, ch);
+    pa = ggml_cont(ctx, ggml_permute(ctx, pa, 0, 2, 1, 3));          // [patch, ch, Tp]
+    ggml_tensor* x = ggml_reshape_2d(ctx, pa, c.out_channels, Tp);   // [512, Tp]
+
+    // mapping conv 512 -> dim (encoder applies it first; WNConv1d has a bias)
+    x = nn::linear(ctx, W.get("ae.enc.mapping.weight"), x, W.get("ae.enc.mapping.bias")); // [dim, Tp]
+
+    // pack each chunk of `stride` real frames + 1 new token -> [dim, sub_chunk, T] -> [dim, N]
+    ggml_tensor* xg = ggml_reshape_3d(ctx, x, dim, stride, T);       // [dim, 16, T]
+    ggml_tensor* nt = ggml_reshape_3d(ctx, W.get("ae.enc.new_tokens"), dim, 1, 1);
+    ggml_tensor* nt_rep = ggml_repeat(ctx, nt, ggml_new_tensor_3d(ctx, GGML_TYPE_F32, dim, 1, T));
+    x = ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_concat(ctx, xg, nt_rep, 1)), dim, N); // [dim, N]
+
+    for (int l = 0; l < c.depth; l++)   // encoder has no sinusoidal blocks
+        x = same_block(ctx, W, "ae.enc." + std::to_string(l) + ".", x, pos, mask, c, /*sinusoidal=*/false);
+
+    // keep the last 1 of each sub_chunk (the new token's output) -> [dim, T]
+    ggml_tensor* x17 = ggml_reshape_3d(ctx, x, dim, c.sub_chunk, T);
+    ggml_tensor* kept = ggml_cont(ctx, ggml_view_3d(ctx, x17, dim, 1, T, x17->nb[1], x17->nb[2],
+                                                    (size_t)(c.sub_chunk - 1) * x17->nb[1]));
+    ggml_tensor* res = ggml_reshape_2d(ctx, kept, dim, T);          // [dim, T]
+    out.after_resampling = res; ggml_set_output(res);
+
+    // out_proj dim -> latent, then SoftNorm.encode: (lat * scaling_factor + bias) / running_std
+    ggml_tensor* lat = nn::linear(ctx, W.get("ae.out_proj.weight"), res, W.get("ae.out_proj.bias")); // [latent,T]
+    out.latent = lat; ggml_set_output(lat);
+    ggml_tensor* z = ggml_add(ctx, ggml_mul(ctx, lat, W.get("ae.scaling_factor")), W.get("ae.bias"));
+    z = ggml_scale(ctx, z, 1.0f / c.running_std);
+    out.z = z; ggml_set_output(z);
+    return out;
+}
+
 // Decoder checkpoints (also the validation taps).
 struct DecodeOut { ggml_tensor* after_in_proj; ggml_tensor* after_resampling; ggml_tensor* audio; };
 
@@ -124,7 +172,7 @@ inline DecodeOut same_decode(ggml_context* ctx, const GgufModel& W, ggml_tensor*
     ggml_tensor* x17 = ggml_reshape_3d(ctx, x, dim, c.sub_chunk, T);
     ggml_tensor* kept = ggml_cont(ctx, ggml_view_3d(ctx, x17, dim, c.output_seg, T, x17->nb[1], x17->nb[2], x17->nb[1]));
     ggml_tensor* up = ggml_reshape_2d(ctx, kept, dim, (int64_t)c.output_seg * T);
-    ggml_tensor* mapped = ggml_mul_mat(ctx, W.get("ae.dec.mapping.weight"), up);    // [out_channels, L]
+    ggml_tensor* mapped = nn::linear(ctx, W.get("ae.dec.mapping.weight"), up, W.get("ae.dec.mapping.bias")); // [out_channels, L]
     out.after_resampling = mapped; ggml_set_output(mapped);
 
     // unpatchify: [out_channels, L] -> [patch, ch, L] -> [patch, L, ch] -> [L*patch, ch]

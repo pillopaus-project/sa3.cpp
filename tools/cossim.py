@@ -16,9 +16,14 @@ import numpy as np
 # value is the np.transpose axes to apply to the squeezed (batch-dropped) array.
 # ggml ne=[a,b,..] memory == numpy shape [..,b,a] C-order.
 LAYOUT = {
+    # decode
     "after_in_proj":   (0, 1),   # pt [T,1536] ; ggml [1536,T] -> ravel (t,d) == pt C-order. no transpose
     "after_resampling":(1, 0),   # pt [512,128]; ggml [512,128](ne0=ch) ravel (t,ch) -> transpose pt to [128,512]
     "audio":           (0, 1),   # pt [2,32768] ; ggml [32768,2] ravel (ch,t) == pt C-order. no transpose
+    # encode (pt [feat, T] channel-first vs ggml [feat, T] ne0=feat -> transpose)
+    "enc_after_resampling": (1, 0),  # pt [1536,T]
+    "enc_latent":           (1, 0),  # pt [256,T]
+    "z_enc":                (1, 0),  # pt [256,T]
 }
 
 

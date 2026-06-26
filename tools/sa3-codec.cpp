@@ -10,21 +10,33 @@
 #include <string>
 #include <vector>
 
+static std::vector<float> read_f32(const char* path, size_t n) {
+    std::vector<float> b(n);
+    FILE* f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "cannot read %s\n", path); exit(1); }
+    if (fread(b.data(), sizeof(float), n, f) != n) { fprintf(stderr, "short read %s\n", path); exit(1); }
+    fclose(f);
+    return b;
+}
+
 int main(int argc, char** argv) {
     const char* gguf_path = nullptr;
-    const char* z_path = nullptr;
+    const char* in_path = nullptr;
+    const char* mode = "decode";
     int frames = 8;
     const char* outdir = ".";
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--gguf")   && i+1 < argc) gguf_path = argv[++i];
-        else if (!strcmp(argv[i], "--z")      && i+1 < argc) z_path = argv[++i];
+        else if (!strcmp(argv[i], "--mode")   && i+1 < argc) mode = argv[++i];
+        else if ((!strcmp(argv[i], "--z") || !strcmp(argv[i], "--in")) && i+1 < argc) in_path = argv[++i];
         else if (!strcmp(argv[i], "--frames") && i+1 < argc) frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--out")    && i+1 < argc) outdir = argv[++i];
     }
-    if (!gguf_path || !z_path) {
-        fprintf(stderr, "usage: sa3-codec --gguf <f> --z <z.f32> --frames N --out <dir>\n");
+    if (!gguf_path || !in_path) {
+        fprintf(stderr, "usage: sa3-codec --gguf <f> --mode decode|encode --in <raw.f32> --frames N --out <dir>\n");
         return 1;
     }
+    const bool encode = !strcmp(mode, "encode");
 
     sa3::GgufModel W = sa3::load_gguf(gguf_path);
     const sa3::SameConfig c = sa3::SameConfig::from(W);
@@ -34,24 +46,39 @@ int main(int argc, char** argv) {
     ggml_init_params ip = { (size_t)256*1024*1024, nullptr, /*no_alloc=*/true };
     ggml_context* ctx = ggml_init(ip);
 
-    ggml_tensor* z    = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, c.latent, T);
     ggml_tensor* pos  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N);
     ggml_tensor* mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, N);
-    ggml_set_input(z); ggml_set_input(pos); ggml_set_input(mask);
+    ggml_set_input(pos); ggml_set_input(mask);
 
-    sa3::DecodeOut out = sa3::same_decode(ctx, W, z, c, T, pos, mask);
+    // input tensor + checkpoints depend on mode
+    ggml_tensor* in = nullptr;
+    std::vector<std::pair<ggml_tensor*, const char*>> taps;
+    if (encode) {
+        const int ch = c.out_channels / c.patch_size;
+        const int L = T * c.patch_size * c.output_seg;       // = T * 4096
+        in = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, L, ch);  // [L, ch]
+        ggml_set_input(in);
+        sa3::EncodeOut e = sa3::same_encode(ctx, W, in, c, T, pos, mask);
+        taps = {{e.after_resampling, "enc_after_resampling"}, {e.latent, "enc_latent"}, {e.z, "z_enc"}};
+    } else {
+        in = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, c.latent, T); // [latent, T]
+        ggml_set_input(in);
+        sa3::DecodeOut d = sa3::same_decode(ctx, W, in, c, T, pos, mask);
+        taps = {{d.after_in_proj, "after_in_proj"}, {d.after_resampling, "after_resampling"}, {d.audio, "audio"}};
+    }
+
+    // Make every checkpoint a real contiguous tensor: dumping a view whose buffer
+    // gallocr later recycles yields garbage. cont + set_output protects the readout.
+    for (auto& t : taps) { t.first = ggml_cont(ctx, t.first); ggml_set_output(t.first); }
 
     ggml_cgraph* gf = ggml_new_graph(ctx);
-    ggml_build_forward_expand(gf, out.audio);
-    ggml_build_forward_expand(gf, out.after_in_proj);
-    ggml_build_forward_expand(gf, out.after_resampling);
+    for (auto& t : taps) ggml_build_forward_expand(gf, t.first);
 
     ggml_gallocr_t alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(W.backend));
     ggml_gallocr_alloc_graph(alloc, gf);
 
-    std::vector<float> zbuf((size_t)c.latent*T);
-    { FILE* f = fopen(z_path, "rb"); fread(zbuf.data(), sizeof(float), zbuf.size(), f); fclose(f); }
-    ggml_backend_tensor_set(z, zbuf.data(), 0, zbuf.size()*sizeof(float));
+    std::vector<float> inbuf = read_f32(in_path, ggml_nelements(in));
+    ggml_backend_tensor_set(in, inbuf.data(), 0, inbuf.size()*sizeof(float));
 
     std::vector<int32_t> posbuf(N); for (int i = 0; i < N; i++) posbuf[i] = i;
     ggml_backend_tensor_set(pos, posbuf.data(), 0, posbuf.size()*sizeof(int32_t));
@@ -63,18 +90,15 @@ int main(int argc, char** argv) {
 
     ggml_backend_graph_compute(W.backend, gf);
 
-    auto dump = [&](ggml_tensor* t, const char* name) {
-        std::vector<float> b(ggml_nelements(t));
-        ggml_backend_tensor_get(t, b.data(), 0, b.size()*sizeof(float));
-        std::string fn = std::string(outdir) + "/" + name + ".f32";
+    for (auto& t : taps) {
+        std::vector<float> b(ggml_nelements(t.first));
+        ggml_backend_tensor_get(t.first, b.data(), 0, b.size()*sizeof(float));
+        std::string fn = std::string(outdir) + "/" + t.second + ".f32";
         FILE* f = fopen(fn.c_str(), "wb"); fwrite(b.data(), sizeof(float), b.size(), f); fclose(f);
-        printf("  dumped %-18s ne=[%lld,%lld,%lld]\n", name,
-               (long long)t->ne[0], (long long)t->ne[1], (long long)t->ne[2]);
-    };
-    dump(out.after_in_proj,    "after_in_proj");
-    dump(out.after_resampling, "after_resampling");
-    dump(out.audio,            "audio");
-    printf("done. T=%d N=%lld running_std=%.5f\n", T, (long long)N, c.running_std);
+        printf("  dumped %-20s ne=[%lld,%lld,%lld]\n", t.second,
+               (long long)t.first->ne[0], (long long)t.first->ne[1], (long long)t.first->ne[2]);
+    }
+    printf("done. mode=%s T=%d N=%lld running_std=%.5f\n", mode, T, (long long)N, c.running_std);
 
     ggml_gallocr_free(alloc);
     ggml_free(ctx);

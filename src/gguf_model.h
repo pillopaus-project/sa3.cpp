@@ -78,7 +78,11 @@ inline GgufModel load_gguf(const char* path, ggml_backend_t backend = nullptr) {
         const size_t off = data_off + gguf_get_tensor_offset(m.gguf, idx);
         const size_t nb  = ggml_nbytes(cur);
         tmp.resize(nb);
-        fseek(f, (long)off, SEEK_SET);
+#ifdef _WIN32
+        _fseeki64(f, (long long)off, SEEK_SET);   // MSVC `long` is 32-bit; files exceed 2 GB
+#else
+        fseeko(f, (off_t)off, SEEK_SET);
+#endif
         if (fread(tmp.data(), 1, nb, f) != nb) { fprintf(stderr, "[gguf] short read %s\n", name); exit(1); }
         ggml_backend_tensor_set(cur, tmp.data(), 0, nb);
         m.tensors[name] = cur;

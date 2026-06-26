@@ -30,23 +30,32 @@ def fuse_weight_norm(g, v):
     return w.astype(np.float32)
 
 
+def _blk(rest):
+    return rest.replace("ff.ff.0.proj", "ff.proj").replace("ff.ff.2", "ff.out")
+
+
 def rename(src_key):
     """Map a `pretransform.model.*` key to a compact GGUF tensor name, or None to skip."""
     k = src_key[len(SRC_PREFIX):]  # strip prefix
-    if k == "bottleneck.running_std":
-        return "ae.running_std"
+    # bottleneck (running_std for decode; scaling_factor/bias for encode)
+    if k == "bottleneck.running_std":   return "ae.running_std"
+    if k == "bottleneck.scaling_factor":return "ae.scaling_factor"
+    if k == "bottleneck.bias":          return "ae.bias"
+    if k == "bottleneck.noise_scaling_factor": return None  # empty (noise_augment_dim=0)
     # decoder.layers: 0=Transpose,1=Linear(256->1536),2=Transpose,3=ResamplingBlock
-    if k == "decoder.layers.1.weight":
-        return "ae.in_proj.weight"
-    if k == "decoder.layers.1.bias":
-        return "ae.in_proj.bias"
-    if k == "decoder.layers.3.new_tokens":
-        return "ae.dec.new_tokens"
+    if k == "decoder.layers.1.weight":  return "ae.in_proj.weight"
+    if k == "decoder.layers.1.bias":    return "ae.in_proj.bias"
+    if k == "decoder.layers.3.new_tokens": return "ae.dec.new_tokens"
+    if k == "decoder.layers.3.mapping.bias": return "ae.dec.mapping.bias"
+    if k == "encoder.layers.0.mapping.bias": return "ae.enc.mapping.bias"
     if k.startswith("decoder.layers.3.transformers."):
-        rest = k[len("decoder.layers.3.transformers."):]   # e.g. "0.self_attn.to_qkv.weight"
-        rest = rest.replace("ff.ff.0.proj", "ff.proj").replace("ff.ff.2", "ff.out")
-        return "ae.dec." + rest
-    # encoder.* and encode-only bottleneck params are skipped in Phase 1
+        return "ae.dec." + _blk(k[len("decoder.layers.3.transformers."):])
+    # encoder.layers: 0=ResamplingBlock,1=Transpose,2=Linear(1536->256),3=Transpose
+    if k == "encoder.layers.0.new_tokens": return "ae.enc.new_tokens"
+    if k == "encoder.layers.2.weight":  return "ae.out_proj.weight"
+    if k == "encoder.layers.2.bias":    return "ae.out_proj.bias"
+    if k.startswith("encoder.layers.0.transformers."):
+        return "ae.enc." + _blk(k[len("encoder.layers.0.transformers."):])
     return None
 
 
@@ -91,14 +100,14 @@ def main():
     n_written, skipped = 0, 0
     with safe_open(args.src, framework="numpy") as f:
         keys = [k for k in f.keys() if k.startswith(SRC_PREFIX)]
-        # fuse the mapping conv first (needs two source tensors)
-        g_key = SRC_PREFIX + "decoder.layers.3.mapping.weight_g"
-        v_key = SRC_PREFIX + "decoder.layers.3.mapping.weight_v"
-        if g_key in keys and v_key in keys:
-            fused = fuse_weight_norm(f.get_tensor(g_key), f.get_tensor(v_key))  # [512,1536,1]
-            fused = np.ascontiguousarray(fused.squeeze(-1))                     # -> [512,1536]
-            w.add_tensor("ae.dec.mapping.weight", fused)
-            n_written += 1
+        # fuse each weight-normed mapping conv (decoder 1536->512, encoder 512->1536)
+        for stem, name in (("decoder.layers.3.mapping", "ae.dec.mapping.weight"),
+                           ("encoder.layers.0.mapping", "ae.enc.mapping.weight")):
+            g_key, v_key = SRC_PREFIX + stem + ".weight_g", SRC_PREFIX + stem + ".weight_v"
+            if g_key in keys and v_key in keys:
+                fused = fuse_weight_norm(f.get_tensor(g_key), f.get_tensor(v_key))  # [out,in,1]
+                w.add_tensor(name, np.ascontiguousarray(fused.squeeze(-1)))         # -> [out,in]
+                n_written += 1
 
         for k in keys:
             if k.endswith("mapping.weight_g") or k.endswith("mapping.weight_v"):
@@ -108,11 +117,11 @@ def main():
                 skipped += 1
                 continue
             t = np.ascontiguousarray(f.get_tensor(k).astype(np.float32))
-            # squeeze leading singletons on small param tensors for clean 1-D shapes
-            if name in ("ae.dec.new_tokens",):
-                t = t.reshape(-1)             # (1,1,1536) -> (1536,)
-            if name == "ae.running_std":
-                t = t.reshape(-1)             # (1,) -> (1,)
+            # squeeze singleton dims on small param tensors for clean 1-D shapes
+            if name in ("ae.dec.new_tokens", "ae.enc.new_tokens",   # (1,1,1536) -> (1536,)
+                        "ae.running_std",                            # (1,) -> (1,)
+                        "ae.scaling_factor", "ae.bias"):             # (1,256,1) -> (256,)
+                t = t.reshape(-1)
             w.add_tensor(name, t)
             n_written += 1
 
