@@ -26,6 +26,8 @@ LAYOUT = {
     "z_enc":                (1, 0),  # pt [256,T]
     # t5gemma text encoder
     "t5g_hidden":           (0, 1),  # pt [seq,dim] ; ggml [dim,seq] ravel (seq,dim) == pt C-order. no transpose
+    # dit
+    "dit_vel":              (1, 0),  # pt [io,T] ; ggml [io,T] ne0=io -> transpose
 }
 
 
