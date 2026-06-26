@@ -1,0 +1,999 @@
+# stable-audio-3-medium model.safetensors — 997 tensors (all F32)
+# name | shape | dtype
+conditioner.conditioners.prompt.padding_embedding	[768]	F32
+conditioner.conditioners.seconds_total.embedder.embedding.1.bias	[768]	F32
+conditioner.conditioners.seconds_total.embedder.embedding.1.weight	[768, 256]	F32
+model.model.postprocess_conv.weight	[256, 256, 1]	F32
+model.model.preprocess_conv.weight	[256, 256, 1]	F32
+model.model.to_cond_embed.0.weight	[1536, 768]	F32
+model.model.to_cond_embed.2.weight	[1536, 1536]	F32
+model.model.to_global_embed.0.weight	[1536, 768]	F32
+model.model.to_global_embed.2.weight	[1536, 1536]	F32
+model.model.to_timestep_embed.0.bias	[1536]	F32
+model.model.to_timestep_embed.0.weight	[1536, 256]	F32
+model.model.to_timestep_embed.2.bias	[1536]	F32
+model.model.to_timestep_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.global_cond_embedder.0.bias	[1536]	F32
+model.model.transformer.global_cond_embedder.0.weight	[1536, 1536]	F32
+model.model.transformer.global_cond_embedder.2.bias	[9216]	F32
+model.model.transformer.global_cond_embedder.2.weight	[9216, 1536]	F32
+model.model.transformer.layers.0.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.0.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.0.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.0.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.0.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.0.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.0.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.0.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.0.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.0.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.0.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.0.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.0.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.0.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.0.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.0.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.0.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.0.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.0.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.0.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.0.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.1.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.1.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.1.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.1.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.1.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.1.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.1.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.1.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.1.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.1.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.1.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.1.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.1.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.1.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.1.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.1.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.1.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.1.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.1.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.1.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.1.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.10.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.10.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.10.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.10.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.10.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.10.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.10.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.10.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.10.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.10.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.10.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.10.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.10.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.10.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.10.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.10.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.10.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.10.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.10.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.10.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.10.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.11.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.11.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.11.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.11.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.11.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.11.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.11.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.11.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.11.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.11.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.11.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.11.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.11.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.11.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.11.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.11.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.11.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.11.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.11.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.11.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.11.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.12.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.12.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.12.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.12.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.12.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.12.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.12.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.12.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.12.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.12.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.12.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.12.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.12.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.12.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.12.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.12.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.12.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.12.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.12.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.12.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.12.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.13.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.13.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.13.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.13.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.13.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.13.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.13.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.13.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.13.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.13.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.13.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.13.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.13.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.13.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.13.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.13.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.13.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.13.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.13.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.13.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.13.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.14.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.14.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.14.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.14.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.14.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.14.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.14.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.14.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.14.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.14.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.14.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.14.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.14.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.14.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.14.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.14.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.14.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.14.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.14.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.14.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.14.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.15.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.15.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.15.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.15.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.15.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.15.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.15.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.15.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.15.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.15.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.15.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.15.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.15.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.15.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.15.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.15.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.15.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.15.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.15.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.15.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.15.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.16.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.16.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.16.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.16.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.16.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.16.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.16.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.16.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.16.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.16.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.16.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.16.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.16.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.16.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.16.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.16.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.16.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.16.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.16.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.16.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.16.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.17.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.17.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.17.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.17.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.17.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.17.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.17.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.17.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.17.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.17.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.17.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.17.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.17.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.17.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.17.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.17.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.17.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.17.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.17.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.17.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.17.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.18.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.18.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.18.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.18.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.18.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.18.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.18.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.18.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.18.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.18.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.18.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.18.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.18.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.18.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.18.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.18.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.18.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.18.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.18.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.18.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.18.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.19.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.19.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.19.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.19.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.19.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.19.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.19.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.19.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.19.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.19.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.19.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.19.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.19.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.19.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.19.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.19.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.19.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.19.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.19.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.19.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.19.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.2.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.2.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.2.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.2.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.2.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.2.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.2.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.2.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.2.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.2.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.2.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.2.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.2.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.2.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.2.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.2.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.2.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.2.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.2.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.2.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.2.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.20.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.20.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.20.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.20.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.20.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.20.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.20.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.20.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.20.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.20.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.20.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.20.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.20.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.20.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.20.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.20.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.20.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.20.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.20.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.20.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.20.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.21.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.21.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.21.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.21.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.21.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.21.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.21.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.21.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.21.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.21.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.21.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.21.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.21.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.21.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.21.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.21.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.21.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.21.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.21.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.21.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.21.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.22.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.22.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.22.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.22.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.22.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.22.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.22.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.22.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.22.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.22.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.22.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.22.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.22.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.22.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.22.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.22.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.22.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.22.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.22.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.22.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.22.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.23.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.23.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.23.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.23.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.23.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.23.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.23.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.23.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.23.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.23.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.23.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.23.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.23.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.23.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.23.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.23.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.23.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.23.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.23.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.23.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.23.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.3.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.3.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.3.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.3.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.3.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.3.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.3.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.3.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.3.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.3.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.3.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.3.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.3.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.3.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.3.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.3.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.3.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.3.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.3.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.3.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.3.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.4.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.4.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.4.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.4.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.4.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.4.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.4.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.4.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.4.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.4.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.4.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.4.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.4.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.4.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.4.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.4.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.4.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.4.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.4.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.4.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.4.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.5.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.5.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.5.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.5.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.5.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.5.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.5.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.5.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.5.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.5.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.5.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.5.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.5.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.5.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.5.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.5.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.5.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.5.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.5.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.5.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.5.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.6.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.6.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.6.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.6.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.6.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.6.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.6.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.6.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.6.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.6.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.6.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.6.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.6.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.6.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.6.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.6.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.6.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.6.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.6.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.6.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.6.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.7.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.7.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.7.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.7.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.7.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.7.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.7.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.7.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.7.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.7.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.7.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.7.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.7.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.7.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.7.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.7.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.7.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.7.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.7.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.7.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.7.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.8.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.8.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.8.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.8.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.8.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.8.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.8.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.8.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.8.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.8.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.8.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.8.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.8.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.8.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.8.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.8.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.8.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.8.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.8.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.8.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.8.to_scale_shift_gate	[9216]	F32
+model.model.transformer.layers.9.cross_attend_norm.gamma	[1536]	F32
+model.model.transformer.layers.9.cross_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.9.cross_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.9.cross_attn.to_kv.weight	[4608, 1536]	F32
+model.model.transformer.layers.9.cross_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.9.cross_attn.to_q.weight	[3072, 1536]	F32
+model.model.transformer.layers.9.ff.ff.0.proj.bias	[12288]	F32
+model.model.transformer.layers.9.ff.ff.0.proj.weight	[12288, 1536]	F32
+model.model.transformer.layers.9.ff.ff.2.bias	[1536]	F32
+model.model.transformer.layers.9.ff.ff.2.weight	[1536, 6144]	F32
+model.model.transformer.layers.9.ff_norm.gamma	[1536]	F32
+model.model.transformer.layers.9.pre_norm.gamma	[1536]	F32
+model.model.transformer.layers.9.self_attn.k_norm.gamma	[64]	F32
+model.model.transformer.layers.9.self_attn.q_norm.gamma	[64]	F32
+model.model.transformer.layers.9.self_attn.to_out.weight	[1536, 1536]	F32
+model.model.transformer.layers.9.self_attn.to_qkv.weight	[7680, 1536]	F32
+model.model.transformer.layers.9.to_local_embed.0.bias	[1536]	F32
+model.model.transformer.layers.9.to_local_embed.0.weight	[1536, 257]	F32
+model.model.transformer.layers.9.to_local_embed.2.bias	[1536]	F32
+model.model.transformer.layers.9.to_local_embed.2.weight	[1536, 1536]	F32
+model.model.transformer.layers.9.to_scale_shift_gate	[9216]	F32
+model.model.transformer.memory_tokens	[64, 1536]	F32
+model.model.transformer.project_in.weight	[1536, 256]	F32
+model.model.transformer.project_out.weight	[256, 1536]	F32
+model.model.transformer.rotary_pos_emb.inv_freq	[16]	F32
+pretransform.model.bottleneck.bias	[1, 256, 1]	F32
+pretransform.model.bottleneck.noise_scaling_factor	[1, 0, 1]	F32
+pretransform.model.bottleneck.running_std	[1]	F32
+pretransform.model.bottleneck.scaling_factor	[1, 256, 1]	F32
+pretransform.model.decoder.layers.1.bias	[1536]	F32
+pretransform.model.decoder.layers.1.weight	[1536, 256]	F32
+pretransform.model.decoder.layers.3.mapping.bias	[512]	F32
+pretransform.model.decoder.layers.3.mapping.weight_g	[512, 1, 1]	F32
+pretransform.model.decoder.layers.3.mapping.weight_v	[512, 1536, 1]	F32
+pretransform.model.decoder.layers.3.new_tokens	[1, 1, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.0.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.0.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.1.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.1.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.10.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.10.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.11.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.11.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.2.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.2.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.3.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.3.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.4.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.4.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.5.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.5.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.6.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.6.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.7.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.7.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.8.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.8.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff.ff.2.bias	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.ff_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.pre_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.9.pre_norm.beta	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.pre_norm.gamma	[1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.rope.inv_freq	[16]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.k_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.q_norm.beta	[64]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.decoder.layers.3.transformers.9.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.mapping.bias	[1536]	F32
+pretransform.model.encoder.layers.0.mapping.weight_g	[1536, 1, 1]	F32
+pretransform.model.encoder.layers.0.mapping.weight_v	[1536, 512, 1]	F32
+pretransform.model.encoder.layers.0.new_tokens	[1, 1, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.0.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.0.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.1.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.1.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.10.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.10.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.11.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.11.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.2.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.2.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.3.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.3.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.4.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.4.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.5.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.5.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.6.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.6.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.7.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.7.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.8.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.8.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff.ff.0.proj.bias	[9216]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff.ff.0.proj.weight	[9216, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff.ff.2.bias	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff.ff.2.weight	[1536, 4608]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.ff_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.pre_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.9.pre_norm.beta	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.pre_norm.gamma	[1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.rope.inv_freq	[16]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.k_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.k_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.k_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.q_norm.alpha	[1]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.q_norm.beta	[64]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.q_norm.gamma	[64]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.to_out.weight	[1536, 1536]	F32
+pretransform.model.encoder.layers.0.transformers.9.self_attn.to_qkv.weight	[7680, 1536]	F32
+pretransform.model.encoder.layers.2.bias	[256]	F32
+pretransform.model.encoder.layers.2.weight	[256, 1536]	F32

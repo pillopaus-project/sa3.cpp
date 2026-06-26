@@ -1,0 +1,19 @@
+# Reference clones (large, fetch separately)
+refs/
+
+# Build artifacts
+build/
+*.o
+*.obj
+*.exe
+
+# Model weights / checkpoints
+models/
+checkpoints/
+*.gguf
+*.safetensors
+
+# Python
+__pycache__/
+*.pyc
+.venv/
