@@ -24,6 +24,8 @@ LAYOUT = {
     "enc_after_resampling": (1, 0),  # pt [1536,T]
     "enc_latent":           (1, 0),  # pt [256,T]
     "z_enc":                (1, 0),  # pt [256,T]
+    # t5gemma text encoder
+    "t5g_hidden":           (0, 1),  # pt [seq,dim] ; ggml [dim,seq] ravel (seq,dim) == pt C-order. no transpose
 }
 
 

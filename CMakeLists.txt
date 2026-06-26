@@ -42,3 +42,6 @@ target_link_libraries(sa3-smoke PRIVATE sa3)
 
 add_executable(sa3-codec tools/sa3-codec.cpp)
 target_link_libraries(sa3-codec PRIVATE sa3)
+
+add_executable(sa3-textenc tools/sa3-textenc.cpp)
+target_link_libraries(sa3-textenc PRIVATE sa3)
