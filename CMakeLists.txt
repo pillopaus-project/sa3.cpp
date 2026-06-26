@@ -48,3 +48,6 @@ target_link_libraries(sa3-textenc PRIVATE sa3)
 
 add_executable(sa3-dit tools/sa3-dit.cpp)
 target_link_libraries(sa3-dit PRIVATE sa3)
+
+add_executable(sa3-textmusic tools/sa3-textmusic.cpp)
+target_link_libraries(sa3-textmusic PRIVATE sa3)

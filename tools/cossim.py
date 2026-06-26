@@ -28,6 +28,8 @@ LAYOUT = {
     "t5g_hidden":           (0, 1),  # pt [seq,dim] ; ggml [dim,seq] ravel (seq,dim) == pt C-order. no transpose
     # dit
     "dit_vel":              (1, 0),  # pt [io,T] ; ggml [io,T] ne0=io -> transpose
+    # text2music final latent
+    "tm_latent":            (1, 0),  # pt [io,T] ; ggml [io,T] ne0=io -> transpose
 }
 
 
