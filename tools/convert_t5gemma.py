@@ -77,6 +77,8 @@ def main():
     ap.add_argument("--src", required=True)
     ap.add_argument("--config", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--cond_src", help="medium model.safetensors (for conditioner.* tensors)")
+    ap.add_argument("--sa3_config", help="medium model_config.json (for seconds_total min/max)")
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text())["encoder"]
@@ -111,6 +113,27 @@ def main():
                 t = t + 1.0    # bake Gemma's (1 + weight)
             w.add_tensor(name, np.ascontiguousarray(t))
             n_written += 1
+
+    # conditioner tensors (learned padding + seconds_total NumberConditioner) from the main checkpoint
+    if args.cond_src:
+        sa3cfg = json.loads(Path(args.sa3_config).read_text()) if args.sa3_config else {}
+        secs = {}
+        for c in sa3cfg.get("model", {}).get("conditioning", {}).get("configs", []):
+            if c["id"] == "seconds_total": secs = c["config"]
+        w.add_float32("t5g.secs_min", float(secs.get("min_val", 0)))
+        w.add_float32("t5g.secs_max", float(secs.get("max_val", 384)))
+        w.add_uint32("t5g.secs_dim", 256)        # NumberEmbedder default dim
+        w.add_uint32("t5g.max_length", 256)      # prompt tokenization max_length
+        cmap = {
+            "conditioner.conditioners.prompt.padding_embedding": "te.padding_embedding",
+            "conditioner.conditioners.seconds_total.embedder.embedding.1.weight": "te.secs.weight",
+            "conditioner.conditioners.seconds_total.embedder.embedding.1.bias": "te.secs.bias",
+        }
+        with open(args.cond_src, "rb") as f:
+            header, data_start = read_safetensors_header(f)
+            for src_name, dst in cmap.items():
+                w.add_tensor(dst, load_f32(f, data_start, header[src_name]).astype(np.float32))
+                n_written += 1
 
     w.write_header_to_file(); w.write_kv_data_to_file(); w.write_tensors_to_file(); w.close()
     print(f"wrote {out}  ({n_written} tensors)  dim={dim} layers={cfg['num_hidden_layers']} "

@@ -54,3 +54,6 @@ target_link_libraries(sa3-textmusic PRIVATE sa3)
 
 add_executable(sa3-tokenize tools/sa3-tokenize.cpp)
 target_link_libraries(sa3-tokenize PRIVATE sa3)
+
+add_executable(sa3-generate tools/sa3-generate.cpp)
+target_link_libraries(sa3-generate PRIVATE sa3)
