@@ -123,17 +123,20 @@ struct EncodeOut { ggml_tensor* after_resampling; ggml_tensor* latent; ggml_tens
 // Full encode: audio [L, audio_channels] -> latent z [latent, T] (T = L / 4096).
 // The mirror of same_decode: mapping conv runs first, each chunk packs `stride`
 // real frames + 1 new token, we keep the last (the new token's output).
-// pos: I32 [N=T*sub_chunk]; mask: [N, N] sliding-window band.
+// Sliding-window AE (SAME-L): pos [N=T*sub_chunk], mask [N,N] band; pos2/mask2 unused.
+// Chunked AE (SAME-S): pos/mask = block-diag over N (first split layers);
+//   pos2 [N+2*shift], mask2 [N+2*shift,N+2*shift] = block-diag (shifted half) — the
+//   encoder runs the same chunk+midpoint-shift attention as same_decode (T even, so the
+//   reference's pre-mapping pad-to-chunk_size is a no-op and N stays divisible by eff_chunk).
 inline EncodeOut same_encode(ggml_context* ctx, const GgufModel& W, ggml_tensor* audio,
-                             const SameConfig& c, int T, ggml_tensor* pos, ggml_tensor* mask) {
+                             const SameConfig& c, int T, ggml_tensor* pos, ggml_tensor* mask,
+                             ggml_tensor* pos2 = nullptr, ggml_tensor* mask2 = nullptr) {
     const int dim = c.dim, stride = c.output_seg;   // output_seg == stride == 16
     const int ch = c.out_channels / c.patch_size;   // 2
     const int Tp = stride * T;                       // patch-frames (= L / patch_size)
     const int64_t N = (int64_t)T * c.sub_chunk;
     EncodeOut out{};
-    // SAME-L (sliding-window) encode only; the SAME-S chunked encoder (Phase 5) will
-    // mirror same_decode's midpoint-shift split. Fail loudly until it lands.
-    GGML_ASSERT(!c.chunk && "SAME-S chunked encoder not implemented yet");
+    GGML_ASSERT(!c.chunk || (pos2 && mask2));   // chunked encode needs the shifted-half inputs
 
     // patchify: audio [L, ch] -> [patch, ch, Tp] -> [patch, Tp, ch] -> [patch*ch=512, Tp]
     ggml_tensor* pa = ggml_reshape_3d(ctx, audio, c.patch_size, Tp, ch);
@@ -149,8 +152,21 @@ inline EncodeOut same_encode(ggml_context* ctx, const GgufModel& W, ggml_tensor*
     ggml_tensor* nt_rep = ggml_repeat(ctx, nt, ggml_new_tensor_3d(ctx, GGML_TYPE_F32, dim, 1, T));
     x = ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_concat(ctx, xg, nt_rep, 1)), dim, N); // [dim, N]
 
-    for (int l = 0; l < c.depth; l++)   // encoder has no sinusoidal blocks
-        x = same_block(ctx, W, "ae.enc." + std::to_string(l) + ".", x, pos, mask, c, /*sinusoidal=*/false);
+    // transformer stack (encoder has no sinusoidal blocks). SAME-L: plain band attention.
+    // SAME-S: same midpoint-shift split as same_decode (block-diag, then edge-pad + shift).
+    auto eblk = [&](ggml_tensor* xx, int l, ggml_tensor* p, ggml_tensor* m){
+        return same_block(ctx, W, "ae.enc." + std::to_string(l) + ".", xx, p, m, c, /*sinusoidal=*/false);
+    };
+    if (!c.chunk) {
+        for (int l = 0; l < c.depth; l++) x = eblk(x, l, pos, mask);
+    } else {
+        for (int l = 0; l < c.split; l++) x = eblk(x, l, pos, mask);
+        ggml_tensor* lft = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, c.shift, x->nb[1], 0));
+        ggml_tensor* rgt = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, c.shift, x->nb[1], (size_t)(N - c.shift)*x->nb[1]));
+        x = ggml_concat(ctx, ggml_concat(ctx, lft, x, 1), rgt, 1);          // [dim, N+2*shift]
+        for (int l = c.split; l < c.depth; l++) x = eblk(x, l, pos2, mask2);
+        x = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, N, x->nb[1], (size_t)c.shift * x->nb[1]));  // [dim, N]
+    }
 
     // keep the last 1 of each sub_chunk (the new token's output) -> [dim, T]
     ggml_tensor* x17 = ggml_reshape_3d(ctx, x, dim, c.sub_chunk, T);

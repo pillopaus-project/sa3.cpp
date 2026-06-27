@@ -46,14 +46,14 @@ int main(int argc, char** argv) {
     ggml_init_params ip = { (size_t)256*1024*1024, nullptr, /*no_alloc=*/true };
     ggml_context* ctx = ggml_init(ip);
 
-    const bool chunked_dec = (!encode) && c.chunk;          // SAME-S decode needs a shifted 2nd mask
-    const int64_t N2 = chunked_dec ? N + 2*c.shift : 0;
+    const bool chunked = c.chunk;                           // SAME-S enc+dec both need a shifted 2nd mask
+    const int64_t N2 = chunked ? N + 2*c.shift : 0;
 
     ggml_tensor* pos  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N);
     ggml_tensor* mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, N);
     ggml_set_input(pos); ggml_set_input(mask);
     ggml_tensor *pos2 = nullptr, *mask2 = nullptr;
-    if (chunked_dec) {
+    if (chunked) {
         pos2  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N2);
         mask2 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N2, N2);
         ggml_set_input(pos2); ggml_set_input(mask2);
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
         const int L = T * c.patch_size * c.output_seg;       // = T * 4096
         in = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, L, ch);  // [L, ch]
         ggml_set_input(in);
-        sa3::EncodeOut e = sa3::same_encode(ctx, W, in, c, T, pos, mask);
+        sa3::EncodeOut e = sa3::same_encode(ctx, W, in, c, T, pos, mask, pos2, mask2);
         taps = {{e.after_resampling, "enc_after_resampling"}, {e.latent, "enc_latent"}, {e.z, "z_enc"}};
     } else {
         in = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, c.latent, T); // [latent, T]
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
         ggml_backend_tensor_set(mt, mb.data(), 0, mb.size()*sizeof(float));
     };
     set_pos(pos, N); set_mask(mask, N);
-    if (chunked_dec) { set_pos(pos2, N2); set_mask(mask2, N2); }
+    if (chunked) { set_pos(pos2, N2); set_mask(mask2, N2); }
 
     ggml_backend_graph_compute(W.backend, gf);
 
