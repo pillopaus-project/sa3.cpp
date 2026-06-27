@@ -1,6 +1,6 @@
 # benchmarks
 
-testing ground: 5070 laptop gpu, 8gb vram
+### testing ground: 5070 laptop gpu, 8gb vram
 
 created some different optimization levers to pull here. all numbers below are
 stable-audio-3-medium, 8 steps, cuda backend. `total` is end-to-end wall time
