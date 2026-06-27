@@ -46,9 +46,18 @@ int main(int argc, char** argv) {
     ggml_init_params ip = { (size_t)256*1024*1024, nullptr, /*no_alloc=*/true };
     ggml_context* ctx = ggml_init(ip);
 
+    const bool chunked_dec = (!encode) && c.chunk;          // SAME-S decode needs a shifted 2nd mask
+    const int64_t N2 = chunked_dec ? N + 2*c.shift : 0;
+
     ggml_tensor* pos  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N);
     ggml_tensor* mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, N);
     ggml_set_input(pos); ggml_set_input(mask);
+    ggml_tensor *pos2 = nullptr, *mask2 = nullptr;
+    if (chunked_dec) {
+        pos2  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N2);
+        mask2 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N2, N2);
+        ggml_set_input(pos2); ggml_set_input(mask2);
+    }
 
     // input tensor + checkpoints depend on mode
     ggml_tensor* in = nullptr;
@@ -63,7 +72,7 @@ int main(int argc, char** argv) {
     } else {
         in = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, c.latent, T); // [latent, T]
         ggml_set_input(in);
-        sa3::DecodeOut d = sa3::same_decode(ctx, W, in, c, T, pos, mask);
+        sa3::DecodeOut d = sa3::same_decode(ctx, W, in, c, T, pos, mask, pos2, mask2);
         taps = {{d.after_in_proj, "after_in_proj"}, {d.after_resampling, "after_resampling"}, {d.audio, "audio"}};
     }
 
@@ -80,13 +89,16 @@ int main(int argc, char** argv) {
     std::vector<float> inbuf = read_f32(in_path, ggml_nelements(in));
     ggml_backend_tensor_set(in, inbuf.data(), 0, inbuf.size()*sizeof(float));
 
-    std::vector<int32_t> posbuf(N); for (int i = 0; i < N; i++) posbuf[i] = i;
-    ggml_backend_tensor_set(pos, posbuf.data(), 0, posbuf.size()*sizeof(int32_t));
-
-    std::vector<float> mbuf((size_t)N*N);
-    for (int q = 0; q < N; q++) for (int kk = 0; kk < N; kk++)
-        mbuf[(size_t)q*N+kk] = (std::abs(q-kk) <= c.sliding_window) ? 0.0f : -INFINITY;
-    ggml_backend_tensor_set(mask, mbuf.data(), 0, mbuf.size()*sizeof(float));
+    auto set_pos = [&](ggml_tensor* p, int64_t n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
+    auto set_mask = [&](ggml_tensor* mt, int64_t M){
+        std::vector<float> mb((size_t)M*M);
+        for (int q = 0; q < M; q++) for (int kk = 0; kk < M; kk++)
+            mb[(size_t)q*M+kk] = c.chunk ? ((q/c.eff_chunk == kk/c.eff_chunk) ? 0.0f : -INFINITY)   // block-diag
+                                         : ((std::abs(q-kk) <= c.sliding_window) ? 0.0f : -INFINITY); // band
+        ggml_backend_tensor_set(mt, mb.data(), 0, mb.size()*sizeof(float));
+    };
+    set_pos(pos, N); set_mask(mask, N);
+    if (chunked_dec) { set_pos(pos2, N2); set_mask(mask2, N2); }
 
     ggml_backend_graph_compute(W.backend, gf);
 

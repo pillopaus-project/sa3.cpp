@@ -17,9 +17,15 @@ struct SameConfig {
     int sub_chunk, output_seg, sliding_window, sinusoidal_blocks;
     int out_channels, patch_size, rot;
     float rope_base, running_std;
+    bool chunk, dec_conv_mapping;   // SAME-S: chunk+midpoint-shift attn / k=3 decoder mapping
+    int  chunk_size, eff_chunk, split, shift;
 
     static SameConfig from(const GgufModel& m) {
         SameConfig c;
+        auto u32opt = [&](const char* k, int def){ int i = gguf_find_key(m.gguf, k); return i < 0 ? def : (int)gguf_get_val_u32(m.gguf, i); };
+        c.chunk            = u32opt("sa3.ae.chunk", 0) != 0;
+        c.chunk_size       = u32opt("sa3.ae.chunk_size", 0);
+        c.dec_conv_mapping = u32opt("sa3.ae.dec_conv_mapping", 0) != 0;
         c.dim              = m.u32("sa3.ae.dim");
         c.latent           = m.u32("sa3.ae.latent_dim");
         c.dim_heads        = m.u32("sa3.ae.dim_heads");
@@ -34,6 +40,10 @@ struct SameConfig {
         c.rope_base        = m.f32("sa3.ae.rope_base");
         c.rot              = c.dim_heads / 2;
         c.running_std      = m.scalar("ae.running_std");
+        // chunk geometry (decoder stride == output_seg): eff = chunk + chunk//stride
+        c.eff_chunk = c.chunk ? c.chunk_size + c.chunk_size / c.output_seg : 0;
+        c.split     = c.depth / 2;
+        c.shift     = c.eff_chunk / 2;
         return c;
     }
 };
@@ -144,10 +154,13 @@ inline EncodeOut same_encode(ggml_context* ctx, const GgufModel& W, ggml_tensor*
 // Decoder checkpoints (also the validation taps).
 struct DecodeOut { ggml_tensor* after_in_proj; ggml_tensor* after_resampling; ggml_tensor* audio; };
 
-// Full decode: z [latent, T] -> audio [T*patch*output_seg-as-time, audio_channels].
-// pos: I32 [N=T*sub_chunk]; mask: [N, N] sliding-window band.
+// Full decode: z [latent, T] -> audio.
+// Sliding-window AE (SAME-L): pos [N=T*sub_chunk], mask [N,N] band; pos2/mask2 unused.
+// Chunked AE (SAME-S): pos/mask = block-diag over N (first split layers);
+//   pos2 [N+2*shift], mask2 [N+2*shift,N+2*shift] = block-diag (shifted half, after edge-pad).
 inline DecodeOut same_decode(ggml_context* ctx, const GgufModel& W, ggml_tensor* z,
-                             const SameConfig& c, int T, ggml_tensor* pos, ggml_tensor* mask) {
+                             const SameConfig& c, int T, ggml_tensor* pos, ggml_tensor* mask,
+                             ggml_tensor* pos2 = nullptr, ggml_tensor* mask2 = nullptr) {
     const int dim = c.dim;
     const int64_t N = (int64_t)T * c.sub_chunk;
     DecodeOut out{};
@@ -163,16 +176,41 @@ inline DecodeOut same_decode(ggml_context* ctx, const GgufModel& W, ggml_tensor*
     ggml_tensor* nt_rep = ggml_repeat(ctx, nt, ggml_new_tensor_3d(ctx, GGML_TYPE_F32, dim, c.output_seg, T));
     x = ggml_reshape_2d(ctx, ggml_cont(ctx, ggml_concat(ctx, x3, nt_rep, 1)), dim, N);
 
-    for (int l = 0; l < c.depth; l++) {
-        bool sinusoidal = (c.depth - l) < c.sinusoidal_blocks;
-        x = same_block(ctx, W, "ae.dec." + std::to_string(l) + ".", x, pos, mask, c, sinusoidal);
+    auto blk = [&](ggml_tensor* xx, int l, ggml_tensor* p, ggml_tensor* m){
+        return same_block(ctx, W, "ae.dec." + std::to_string(l) + ".", xx, p, m, c, (c.depth - l) < c.sinusoidal_blocks);
+    };
+    if (!c.chunk) {
+        for (int l = 0; l < c.depth; l++) x = blk(x, l, pos, mask);
+    } else {
+        // first `split` layers: block-diag attention over N
+        for (int l = 0; l < c.split; l++) x = blk(x, l, pos, mask);
+        // shifted half: edge-pad concat([x[:,:shift], x, x[:,-shift:]]) -> run -> slice [shift:shift+N]
+        ggml_tensor* lft = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, c.shift, x->nb[1], 0));
+        ggml_tensor* rgt = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, c.shift, x->nb[1], (size_t)(N - c.shift)*x->nb[1]));
+        x = ggml_concat(ctx, ggml_concat(ctx, lft, x, 1), rgt, 1);          // [dim, N+2*shift]
+        for (int l = c.split; l < c.depth; l++) x = blk(x, l, pos2, mask2);
+        x = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, N, x->nb[1], (size_t)c.shift * x->nb[1]));  // [dim, N]
     }
 
     // keep the last `output_seg` of each `sub_chunk` -> [dim, T*output_seg], then mapping dim->out_channels
     ggml_tensor* x17 = ggml_reshape_3d(ctx, x, dim, c.sub_chunk, T);
     ggml_tensor* kept = ggml_cont(ctx, ggml_view_3d(ctx, x17, dim, c.output_seg, T, x17->nb[1], x17->nb[2], x17->nb[1]));
-    ggml_tensor* up = ggml_reshape_2d(ctx, kept, dim, (int64_t)c.output_seg * T);
-    ggml_tensor* mapped = nn::linear(ctx, W.get("ae.dec.mapping.weight"), up, W.get("ae.dec.mapping.bias")); // [out_channels, L]
+    ggml_tensor* up = ggml_reshape_2d(ctx, kept, dim, (int64_t)c.output_seg * T);   // [dim, L]
+    ggml_tensor* mapped;
+    if (!c.dec_conv_mapping) {
+        mapped = nn::linear(ctx, W.get("ae.dec.mapping.weight"), up, W.get("ae.dec.mapping.bias")); // k=1 = matmul
+    } else {
+        // k=3 WNConv1d, padding 'same' = sum of 3 tap-matmuls over zero-padded shifts:
+        //   out[:,t] = w0@x[:,t-1] + w1@x[:,t] + w2@x[:,t+1]   (F32-exact, no im2col).
+        const int64_t L = up->ne[1];
+        ggml_tensor* zc = ggml_scale(ctx, ggml_view_2d(ctx, up, dim, 1, up->nb[1], 0), 0.0f); // [dim,1] zeros
+        ggml_tensor* xp = ggml_concat(ctx, ggml_concat(ctx, zc, up, 1), zc, 1);               // [dim, L+2]
+        auto shifted = [&](int off){ return ggml_view_2d(ctx, xp, dim, L, xp->nb[1], (size_t)off*xp->nb[1]); };
+        ggml_tensor* m0 = ggml_mul_mat(ctx, W.get("ae.dec.mapping.w0"), shifted(0));  // x[:,t-1]
+        ggml_tensor* m1 = ggml_mul_mat(ctx, W.get("ae.dec.mapping.w1"), shifted(1));  // x[:,t]
+        ggml_tensor* m2 = ggml_mul_mat(ctx, W.get("ae.dec.mapping.w2"), shifted(2));  // x[:,t+1]
+        mapped = ggml_add(ctx, ggml_add(ctx, ggml_add(ctx, m0, m1), m2), W.get("ae.dec.mapping.bias"));
+    }
     out.after_resampling = mapped; ggml_set_output(mapped);
 
     // unpatchify: [out_channels, L] -> [patch, ch, L] -> [patch, L, ch] -> [L*patch, ch]

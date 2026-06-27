@@ -95,6 +95,10 @@ def main():
     w.add_uint32("sa3.ae.sample_rate",       cfg["sample_rate"])             # 44100
     w.add_float32("sa3.ae.rope_base",        10000.0)
     w.add_float32("sa3.ae.qk_norm_eps",      1e-3)
+    # attention mode: sliding-window (SAME-L) vs chunk + midpoint-shift (SAME-S)
+    w.add_uint32("sa3.ae.chunk",      1 if dec.get("chunk_midpoint_shift", False) else 0)
+    w.add_uint32("sa3.ae.chunk_size", dec.get("chunk_size", 0))
+    w.add_uint32("sa3.ae.dec_conv_mapping", 1 if dec.get("conv_mapping", False) else 0)  # k=3 vs k=1
 
     # --- tensors ---
     n_written, skipped = 0, 0
@@ -105,9 +109,15 @@ def main():
                            ("encoder.layers.0.mapping", "ae.enc.mapping.weight")):
             g_key, v_key = SRC_PREFIX + stem + ".weight_g", SRC_PREFIX + stem + ".weight_v"
             if g_key in keys and v_key in keys:
-                fused = fuse_weight_norm(f.get_tensor(g_key), f.get_tensor(v_key))  # [out,in,1]
-                w.add_tensor(name, np.ascontiguousarray(fused.squeeze(-1)))         # -> [out,in]
-                n_written += 1
+                fused = fuse_weight_norm(f.get_tensor(g_key), f.get_tensor(v_key))  # [out,in,k]
+                if fused.shape[-1] == 1:
+                    w.add_tensor(name, np.ascontiguousarray(fused.squeeze(-1)))     # k=1 -> [out,in] (matmul)
+                    n_written += 1
+                else:                                # k>1: store each tap as a matmul matrix (w0,w1,..)
+                    base = name[:-len(".weight")]
+                    for dk in range(fused.shape[-1]):
+                        w.add_tensor(f"{base}.w{dk}", np.ascontiguousarray(fused[:, :, dk]))  # [out,in]
+                        n_written += 1
 
         for k in keys:
             if k.endswith("mapping.weight_g") or k.endswith("mapping.weight_v"):
