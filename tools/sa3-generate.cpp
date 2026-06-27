@@ -69,6 +69,7 @@ int main(int argc, char** argv) {
     float init_noise_level = 0.85f;          // sigma_max for audio2audio (1.0 == text2music)
     float inpaint_start = -1.0f, inpaint_end = -1.0f;   // inpaint: regenerate this [start,end] sec region
     std::vector<std::pair<std::string,float>> lora_specs;   // (gguf, strength) applied in flag order
+    bool keep_models = false;        // --keep-models: don't free TE/DIT early (keep all resident)
     int frames = 128, steps = 8; uint64_t seed = 0;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
@@ -89,6 +90,7 @@ int main(int argc, char** argv) {
             if (lora_specs.empty()) { fprintf(stderr, "--lora-strength must follow a --lora\n"); return 1; }
             lora_specs.back().second = (float)atof(argv[++i]);
         }
+        else if (!strcmp(argv[i], "--keep-models")) keep_models = true;   // disable progressive VRAM frees
     }
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);   // inpaint mode (needs --init source)
     if (!tok_p || !t5_p || !dit_p || !same_p) {
@@ -310,7 +312,7 @@ int main(int argc, char** argv) {
                f0, f1, T, f0 * (float)ds / 44100.0f, f1 * (float)ds / 44100.0f);
     }
 
-    TE.free();   // T5Gemma done after conditioning — free its VRAM before sampling (8GB card is tight at f32)
+    if (!keep_models) TE.free();   // free T5Gemma before sampling (skip with --keep-models)
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
@@ -369,7 +371,7 @@ int main(int argc, char** argv) {
     profile_log(prof, "dit_get_update", dit_download_update);
     profile_log(prof, "dit_total", wall_time_s() - t_dit_total);
     ggml_gallocr_free(alloc_dit); ggml_free(dctx);
-    DIT.free();   // DiT done — free ~6GB before the SAME decode so the AE is fully VRAM-resident
+    if (!keep_models) DIT.free();   // free the DiT before the SAME decode (skip with --keep-models)
 
     // ---------- decode -> WAV ----------
     const int Ndec = T * sc.sub_chunk;
@@ -419,7 +421,8 @@ int main(int argc, char** argv) {
     printf("wrote %s  (%.2fs, seed %llu)\n", wav_p, (float)n_samp/44100.0f, (unsigned long long)seed);
 
     ggml_gallocr_free(alloc_dec); ggml_free(ectx);
-    AE.free();   // TE and DIT already freed above
+    if (keep_models) { TE.free(); DIT.free(); }   // freed early otherwise
+    AE.free();
     profile_log(prof, "total", wall_time_s() - t_total0);
     return 0;
 }
