@@ -64,7 +64,12 @@ int main(int argc, char** argv) {
     ggml_tensor* pos_d = ggml_new_tensor_1d(dctx, GGML_TYPE_I32, S);
     ggml_tensor* ones  = ggml_new_tensor_1d(dctx, GGML_TYPE_F32, 1);
     for (ggml_tensor* t : {x_in, tfeat, cross, glob, pos_d, ones}) ggml_set_input(t);
-    ggml_tensor* vel = ggml_cont(dctx, sa3::dit_forward(dctx, DIT, x_in, tfeat, cross, glob, pos_d, ones, dc));
+    // inpaint: replay tm_local.f32 if the DiT has local-cond weights and the ref exists
+    std::string local_path = std::string(dir) + "/tm_local.f32";
+    ggml_tensor* local = nullptr;
+    if (dc.local_dim > 0) { FILE* lf = fopen(local_path.c_str(), "rb"); if (lf) { fclose(lf);
+        local = ggml_new_tensor_2d(dctx, GGML_TYPE_F32, dc.local_dim, T); ggml_set_input(local); } }
+    ggml_tensor* vel = ggml_cont(dctx, sa3::dit_forward(dctx, DIT, x_in, tfeat, cross, glob, pos_d, ones, dc, local));
     ggml_set_output(vel);
     ggml_cgraph* gf_dit = ggml_new_graph_custom(dctx, 32768, false);
     ggml_build_forward_expand(gf_dit, vel);
@@ -74,6 +79,7 @@ int main(int argc, char** argv) {
     // DiT inputs (re-set every step: gallocr may recycle input buffers across recompute)
     std::vector<float> crossb = read_f32(std::string(dir)+"/tm_cross.f32",  (size_t)dc.cond_dim*ctx_len);
     std::vector<float> globb  = read_f32(std::string(dir)+"/tm_global.f32", dc.cond_dim);
+    std::vector<float> localb = local ? read_f32(local_path, (size_t)dc.local_dim*T) : std::vector<float>{};
     std::vector<int32_t> posb(S); for (int i = 0; i < S; i++) posb[i] = i;
     const float one = 1.0f;
     auto set_static = [&]{
@@ -81,6 +87,7 @@ int main(int argc, char** argv) {
         ggml_backend_tensor_set(glob,  globb.data(),  0, globb.size()*sizeof(float));
         ggml_backend_tensor_set(pos_d, posb.data(),   0, posb.size()*sizeof(int32_t));
         ggml_backend_tensor_set(ones,  &one, 0, sizeof(float));
+        if (local) ggml_backend_tensor_set(local, localb.data(), 0, localb.size()*sizeof(float));
     };
 
     // ---------- ping-pong loop (host mixing between DiT calls) ----------

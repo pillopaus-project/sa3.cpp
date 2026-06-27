@@ -40,8 +40,9 @@ int main(int argc, char** argv) {
     const char* tok_p = nullptr; const char* t5_p = nullptr; const char* dit_p = nullptr; const char* same_p = nullptr;
     std::string prompt = "Upbeat funk groove with slap bass, bright horns, tight drums";
     const char* wav_p = "song.wav";
-    const char* init_p = nullptr;            // audio2audio: init WAV to vary from
+    const char* init_p = nullptr;            // audio2audio / inpaint: source WAV (encoded to z_init)
     float init_noise_level = 0.85f;          // sigma_max for audio2audio (1.0 == text2music)
+    float inpaint_start = -1.0f, inpaint_end = -1.0f;   // inpaint: regenerate this [start,end] sec region
     int frames = 128, steps = 8; uint64_t seed = 0;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
@@ -55,7 +56,10 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--out")    && i+1 < argc) wav_p = argv[++i];
         else if (!strcmp(argv[i], "--init")   && i+1 < argc) init_p = argv[++i];
         else if (!strcmp(argv[i], "--init-noise-level") && i+1 < argc) init_noise_level = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--inpaint-start") && i+1 < argc) inpaint_start = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--inpaint-end")   && i+1 < argc) inpaint_end   = (float)atof(argv[++i]);
     }
+    const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);   // inpaint mode (needs --init source)
     if (!tok_p || !t5_p || !dit_p || !same_p) {
         fprintf(stderr, "usage: sa3-generate --tok <f> --t5 <f> --dit <f> --same <f> --prompt \"...\" --frames N --steps N --seed S --out song.wav\n");
         return 1;
@@ -89,7 +93,12 @@ int main(int argc, char** argv) {
     const int T = frames, max_len = (int)TE.u32("t5g.max_length");
     const int cond_dim = tc.dim, ctx_len = max_len + 1;     // t5gemma tokens + 1 seconds token
     const int N = T * dc.io;
-    const float sigma_max = init_p ? init_noise_level : 1.0f;
+    // inpaint runs from pure noise (sigma_max=1) + local_add_cond; audio2audio mixes init at sigma_max<1
+    const float sigma_max = (init_p && !inpaint) ? init_noise_level : 1.0f;
+    if (inpaint && (!init_p || dc.local_dim <= 0)) {
+        fprintf(stderr, "inpaint needs --init <wav> (source audio) and a DiT with local-cond weights (dit.local_dim>0)\n");
+        return 1;
+    }
 
     // ---------- tokenize + pad ----------
     std::vector<int32_t> enc = tok.encode(prompt);
@@ -204,8 +213,30 @@ int main(int argc, char** argv) {
     sa3::Rng rng(seed);
     std::vector<float> host_x(N); rng.fill_normal(host_x.data(), N);
     std::vector<float> stepnoise((size_t)steps*N); rng.fill_normal(stepnoise.data(), stepnoise.size());
-    if (init_p)
+    if (init_p && !inpaint)
         for (int j = 0; j < N; j++) host_x[j] = z_init[j]*(1.0f - sigma_max) + host_x[j]*sigma_max;
+
+    // ---------- inpaint: build local_add_cond = [mask(1) | z_init*mask(256)] in ggml [local_dim, T] ----------
+    // mask: 1 = keep (known context), 0 = inpaint (regenerate); the [start,end] sec window is masked out.
+    std::vector<float> localb;
+    if (inpaint) {
+        // match the reference: mask at audio-sample res (int() trunc) then nearest-downsample to frames
+        // == frame f masked iff f*ds in [int(start*sr), int(end*sr)) == f0=ceil(int(start*sr)/ds).
+        auto ceil_div = [](int a, int b){ return (a + b - 1) / b; };
+        const int sa = (int)(inpaint_start * 44100.0f);
+        const int ea = inpaint_end < 0 ? T*ds : (int)(inpaint_end * 44100.0f);
+        const int f0 = std::max(0, std::min(T, ceil_div(sa, ds)));
+        const int f1 = std::max(f0, std::min(T, ceil_div(ea, ds)));
+        localb.assign((size_t)dc.local_dim * T, 0.0f);
+        for (int t = 0; t < T; t++) {
+            float m = (t >= f0 && t < f1) ? 0.0f : 1.0f;          // 0 inside the inpaint window
+            localb[(size_t)t*dc.local_dim + 0] = m;               // channel 0 = mask
+            for (int c = 0; c < dc.io; c++)                       // channels 1..256 = z_init * mask
+                localb[(size_t)t*dc.local_dim + 1 + c] = z_init[(size_t)t*dc.io + c] * m;
+        }
+        printf("inpaint: regenerating frames [%d,%d) of %d (%.2f-%.2fs), keeping the rest\n",
+               f0, f1, T, f0 * (float)ds / 44100.0f, f1 * (float)ds / 44100.0f);
+    }
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
@@ -218,7 +249,9 @@ int main(int argc, char** argv) {
     ggml_tensor* pos_d = ggml_new_tensor_1d(dctx, GGML_TYPE_I32, S);
     ggml_tensor* ones  = ggml_new_tensor_1d(dctx, GGML_TYPE_F32, 1);
     for (ggml_tensor* t : {x_in, tfeat, cross, glob, pos_d, ones}) ggml_set_input(t);
-    ggml_tensor* vel = ggml_cont(dctx, sa3::dit_forward(dctx, DIT, x_in, tfeat, cross, glob, pos_d, ones, dc));
+    ggml_tensor* local = nullptr;
+    if (inpaint) { local = ggml_new_tensor_2d(dctx, GGML_TYPE_F32, dc.local_dim, T); ggml_set_input(local); }
+    ggml_tensor* vel = ggml_cont(dctx, sa3::dit_forward(dctx, DIT, x_in, tfeat, cross, glob, pos_d, ones, dc, local));
     ggml_set_output(vel);
     ggml_cgraph* gf_dit = ggml_new_graph_custom(dctx, 32768, false);
     ggml_build_forward_expand(gf_dit, vel);
@@ -232,6 +265,7 @@ int main(int argc, char** argv) {
         ggml_backend_tensor_set(glob,  globb.data(),  0, globb.size()*sizeof(float));
         ggml_backend_tensor_set(pos_d, posb.data(),   0, posb.size()*sizeof(int32_t));
         ggml_backend_tensor_set(ones,  &one, 0, sizeof(float));
+        if (local) ggml_backend_tensor_set(local, localb.data(), 0, localb.size()*sizeof(float));  // re-set (gallocr recycle)
         ggml_backend_tensor_set(x_in,  host_x.data(), 0, N*sizeof(float));
         expo_features(sigmas[i], tf, dc.time_dim, dc.time_min_freq, dc.time_max_freq);
         ggml_backend_tensor_set(tfeat, tf.data(), 0, tf.size()*sizeof(float));

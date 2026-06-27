@@ -29,6 +29,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--init-wav", default=None, help="audio2audio: init WAV to encode + vary from")
     ap.add_argument("--init-noise-level", type=float, default=1.0, help="sigma_max for audio2audio")
+    ap.add_argument("--inpaint-wav", default=None, help="inpaint: source WAV; [start,end] sec is regenerated")
+    ap.add_argument("--inpaint-start", type=float, default=0.0)
+    ap.add_argument("--inpaint-end", type=float, default=0.0)
     args = ap.parse_args()
 
     os.environ["HF_HOME"] = args.hf_home
@@ -77,6 +80,23 @@ def main():
         z_init = wrapper.pretransform.encode(wav.unsqueeze(0).float())   # [1, io, T]
         print(f"init z_init {tuple(z_init.shape)} range [{z_init.min():.3f},{z_init.max():.3f}]  sigma_max={sigma_max}")
 
+    # --- inpaint: encode source, build mask (audio-res int() trunc -> nearest downsample) + local_add_cond ---
+    local = None
+    if args.inpaint_wav:
+        import torchaudio
+        wav, in_sr = torchaudio.load(args.inpaint_wav)
+        assert in_sr == sr
+        if wav.shape[0] == 1: wav = wav.repeat(2, 1)
+        Lreq = T * ds
+        wav = wav[:, :Lreq] if wav.shape[1] >= Lreq else torch.nn.functional.pad(wav, (0, Lreq - wav.shape[1]))
+        z_init = wrapper.pretransform.encode(wav.unsqueeze(0).float())          # [1, io, T]
+        mask = torch.ones(1, Lreq)
+        mask[:, int(args.inpaint_start*sr):int(args.inpaint_end*sr)] = 0.0      # 0 = inpaint region
+        mask = torch.nn.functional.interpolate(mask.unsqueeze(1), size=T, mode="nearest").squeeze(1)  # [1, T]
+        mask3 = mask.unsqueeze(1)                                               # [1, 1, T]
+        local = torch.cat([mask3, z_init * mask3], dim=1)                       # [1, 257, T]
+        print(f"inpaint local_add_cond {tuple(local.shape)}  kept frames={int(mask.sum())}/{T}")
+
     # --- schedule (post dist-shift); sigma_max < 1 for audio2audio ---
     sigmas = build_schedule(steps=args.steps, sigma_max=sigma_max, dist_shift=wrapper.sampling_dist_shift,
                             fallback_seq_len=T, include_endpoint=True, device=dev).float()  # [steps+1]
@@ -93,7 +113,8 @@ def main():
     x = noise0.clone()
     with torch.no_grad():
         for i in range(args.steps):
-            v = dit(x, sigmas[i].expand(1), cross_attn_cond=cross, global_embed=glob, cfg_scale=1.0)
+            v = dit(x, sigmas[i].expand(1), cross_attn_cond=cross, global_embed=glob,
+                    local_add_cond=local, cfg_scale=1.0)
             denoised = x - sigmas[i] * v
             x = (1 - sigmas[i+1]) * denoised + sigmas[i+1] * step_noise[i]
         latent = x
@@ -106,6 +127,8 @@ def main():
     np.ascontiguousarray(sigmas.numpy()).tofile(out / "tm_sigmas.f32")        # [steps+1]
     np.ascontiguousarray(noise0[0].numpy().T).tofile(out / "tm_noise0.f32")   # ggml [io,T]
     np.ascontiguousarray(np.stack([n[0].numpy().T for n in step_noise])).tofile(out / "tm_stepnoise.f32")  # [steps, io, T] each ggml [io,T]
+    if local is not None:
+        np.ascontiguousarray(local[0].numpy().T).tofile(out / "tm_local.f32")  # ggml [local_dim, T]
     np.save(out / "tm_latent.npy", latent[0].numpy())                          # [io, T]
 
     # write the PyTorch WAV
