@@ -9,7 +9,7 @@ build/
 
 # Reference activation dumps (regenerate via tools/dump_refs.py) + C++ checkpoint dumps
 refdata/
-cppout/
+cppout*/
 
 # Model weights / checkpoints
 models/
@@ -23,5 +23,3 @@ __pycache__/
 .venv/
 _smallweights/
 refdata_small/
-cppout_small/
-cppout_smalls/
