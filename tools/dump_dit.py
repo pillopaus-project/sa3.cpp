@@ -30,6 +30,7 @@ def main():
     ap.add_argument("--frames", type=int, default=32)
     ap.add_argument("--t", type=float, default=0.5)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--inpaint", action="store_true", help="also feed a random local_add_cond (inpaint path)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
@@ -52,10 +53,13 @@ def main():
     t = torch.tensor([args.t])
     cross = torch.randn(1, 257, cond_dim)      # [prompt(256) + seconds(1)]
     glob  = torch.randn(1, cond_dim)
+    local_dim = dmc.get("local_add_cond_dim", 0) or 0   # 257 for inpaint
+    local = torch.randn(1, local_dim, T) if (local_dim and args.inpaint) else None
 
     with torch.no_grad():
         tfeat = dit.timestep_features(t[:, None])           # [1, time_dim]
-        vel = dit(x, t, cross_attn_cond=cross, global_embed=glob, cfg_scale=1.0)  # [1, io, T]
+        vel = dit(x, t, cross_attn_cond=cross, global_embed=glob,
+                  local_add_cond=local, cfg_scale=1.0)      # [1, io, T]
 
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     # raw inputs in ggml layouts
@@ -63,6 +67,8 @@ def main():
     np.ascontiguousarray(tfeat[0].numpy()).tofile(out / "dit_tfeat.f32")  # [time_dim]
     np.ascontiguousarray(cross[0].numpy()).tofile(out / "dit_cross.f32")  # ggml [cond_dim, 257]
     np.ascontiguousarray(glob[0].numpy()).tofile(out / "dit_global.f32")  # [cond_dim]
+    if local is not None:
+        np.ascontiguousarray(local[0].numpy().T).tofile(out / "dit_local.f32")  # ggml [local_dim, T]
     np.save(out / "dit_vel.npy", vel[0].numpy())                          # [io, T]
     print(f"velocity shape {tuple(vel.shape)}  range [{vel.min():.3f},{vel.max():.3f}]  t={args.t} T={T}")
     print(f"saved -> {out}/dit_x.f32, dit_tfeat.f32, dit_cross.f32, dit_global.f32, dit_vel.npy")

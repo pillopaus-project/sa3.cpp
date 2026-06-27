@@ -16,7 +16,7 @@
 namespace sa3 {
 
 struct DitConfig {
-    int io, dim, depth, heads, head_dim, cond_dim, mem_tokens, rot, time_dim;
+    int io, dim, depth, heads, head_dim, cond_dim, mem_tokens, rot, time_dim, local_dim;
     float rope_base, norm_eps, qk_eps, time_min_freq, time_max_freq;
     bool differential;   // medium=true (5x qkv), small=false (3x qkv)
 
@@ -24,6 +24,8 @@ struct DitConfig {
         DitConfig c;
         int dk = gguf_find_key(m.gguf, "dit.differential");
         c.differential = (dk < 0) ? true : (gguf_get_val_u32(m.gguf, dk) != 0);
+        int lk = gguf_find_key(m.gguf, "dit.local_dim");
+        c.local_dim = (lk < 0) ? 0 : (int)gguf_get_val_u32(m.gguf, lk);   // 257 inpaint, 0 if absent
         c.io         = m.u32("dit.io");
         c.dim        = m.u32("dit.dim");
         c.depth      = m.u32("dit.depth");
@@ -52,9 +54,11 @@ inline ggml_tensor* dit_diff_attn(ggml_context* ctx, ggml_tensor* q, ggml_tensor
 }
 
 // One DiT block. x:[dim,S]; context:[dim,Ctx]; gcond:[6*dim] adaLN signal; ones:[1]=1.0.
+// local_cond:[local_dim,T] (inpaint) or nullptr — projected per-block and added to the T real tokens.
 inline ggml_tensor* dit_block(ggml_context* ctx, const GgufModel& W, const std::string& p,
                               ggml_tensor* x, ggml_tensor* context, ggml_tensor* gcond,
-                              ggml_tensor* pos, ggml_tensor* ones, const DitConfig& c) {
+                              ggml_tensor* pos, ggml_tensor* ones, const DitConfig& c,
+                              ggml_tensor* local_cond = nullptr) {
     const int dim = c.dim, hd = c.head_dim, nh = c.heads;
     const int64_t S = x->ne[1], Ctx = context->ne[1];
     const float scale = 1.0f / sqrtf((float)hd);
@@ -119,6 +123,18 @@ inline ggml_tensor* dit_block(ggml_context* ctx, const GgufModel& W, const std::
     oc = ggml_mul_mat(ctx, W.get(p+"cross.out.weight"), oc);
     x = ggml_add(ctx, x, oc);
 
+    // --- inpaint local conditioning (per block, after cross-attn): add to the T real tokens only ---
+    // le = Linear(local_dim->dim) -> SiLU -> Linear(dim->dim); memory tokens (first mem_tokens) get +0.
+    if (local_cond) {
+        ggml_tensor* le = nn::linear(ctx, W.get(p+"local.0.weight"), local_cond, W.get(p+"local.0.bias")); // [dim,T]
+        le = ggml_silu(ctx, le);
+        le = nn::linear(ctx, W.get(p+"local.2.weight"), le, W.get(p+"local.2.bias"));                      // [dim,T]
+        const int64_t Tt = local_cond->ne[1];
+        ggml_tensor* xm = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, c.mem_tokens, x->nb[1], 0));                    // [dim,mem]
+        ggml_tensor* xt = ggml_cont(ctx, ggml_view_2d(ctx, x, dim, Tt, x->nb[1], (size_t)c.mem_tokens*x->nb[1]));  // [dim,T]
+        x = ggml_concat(ctx, xm, ggml_add(ctx, xt, le), 1);                                                       // [dim,mem+T]
+    }
+
     // --- SwiGLU feed-forward with adaLN ---
     res = x;
     ggml_tensor* f = modulate(nn::rms_norm(ctx, x, W.get(p+"ff_norm.gamma"), c.norm_eps), sc_f, sh_f);
@@ -140,10 +156,11 @@ inline ggml_tensor* mlp_silu(ggml_context* ctx, const GgufModel& W, const std::s
 }
 
 // Full DiT forward. x:[io,T]; t_feat:[time_dim]; cross:[cond_dim,Ctx]; glob:[cond_dim];
-// pos:[mem+T]; ones:[1]=1.0. Returns velocity [io, T].
+// pos:[mem+T]; ones:[1]=1.0. local_cond:[local_dim,T] for inpaint, or nullptr. Returns velocity [io, T].
 inline ggml_tensor* dit_forward(ggml_context* ctx, const GgufModel& W, ggml_tensor* x_in,
                                 ggml_tensor* t_feat, ggml_tensor* cross, ggml_tensor* glob,
-                                ggml_tensor* pos, ggml_tensor* ones, const DitConfig& c) {
+                                ggml_tensor* pos, ggml_tensor* ones, const DitConfig& c,
+                                ggml_tensor* local_cond = nullptr) {
     // conditioning signals
     ggml_tensor* te = mlp_silu(ctx, W, "dit.time_embed.", t_feat, true);          // [dim]
     ggml_tensor* g  = mlp_silu(ctx, W, "dit.global_embed.", glob, false);         // [dim]
@@ -157,7 +174,7 @@ inline ggml_tensor* dit_forward(ggml_context* ctx, const GgufModel& W, ggml_tens
     x = ggml_concat(ctx, W.get("dit.memory_tokens"), x, 1);                       // [dim, mem+T]
 
     for (int l = 0; l < c.depth; l++)
-        x = dit_block(ctx, W, "dit." + std::to_string(l) + ".", x, context, gcond, pos, ones, c);
+        x = dit_block(ctx, W, "dit." + std::to_string(l) + ".", x, context, gcond, pos, ones, c, local_cond);
 
     // drop memory tokens, project out, residual post-conv
     const int64_t T = x->ne[1] - c.mem_tokens;

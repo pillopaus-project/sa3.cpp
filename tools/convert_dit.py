@@ -64,11 +64,14 @@ def rename(k):
             "ff.ff.2.weight":          "ff.out.weight",
             "ff.ff.2.bias":            "ff.out.bias",
             "to_scale_shift_gate":     "ssg",
+            # inpaint per-block local conditioning: Linear(257->dim) -> SiLU -> Linear(dim->dim)
+            "to_local_embed.0.weight": "local.0.weight",
+            "to_local_embed.0.bias":   "local.0.bias",
+            "to_local_embed.2.weight": "local.2.weight",
+            "to_local_embed.2.bias":   "local.2.bias",
         }
         if rest in m:
             return f"dit.{i}.{m[rest]}"
-        if rest.startswith("to_local_embed"):
-            return None   # inpaint path, Phase 5
     return None
 
 
@@ -95,6 +98,7 @@ def main():
     w.add_uint32("dit.rot",       (dim // cfg["num_heads"]) // 2)  # 32 (partial rope)
     w.add_uint32("dit.time_dim",  cfg.get("timestep_features_dim", 256))  # 256
     w.add_uint32("dit.differential", 1 if cfg.get("attn_kwargs", {}).get("differential", False) else 0)
+    w.add_uint32("dit.local_dim", cfg.get("local_add_cond_dim", 0) or 0)   # 257 for inpaint, 0 if absent
     w.add_float32("dit.rope_base", 10000.0)
     w.add_float32("dit.norm_eps",  1e-5)   # block RMSNorm
     w.add_float32("dit.qk_eps",    1e-6)   # qk RMSNorm

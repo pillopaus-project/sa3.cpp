@@ -44,7 +44,13 @@ int main(int argc, char** argv) {
     ggml_tensor* ones  = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 1);
     for (ggml_tensor* t : {x, tfeat, cross, glob, pos, ones}) ggml_set_input(t);
 
-    ggml_tensor* vel = ggml_cont(ctx, sa3::dit_forward(ctx, W, x, tfeat, cross, glob, pos, ones, c));
+    // inpaint: if the DiT carries local-cond weights and a dit_local.f32 ref exists, feed it
+    std::string local_path = std::string(dir) + "/dit_local.f32";
+    ggml_tensor* local = nullptr;
+    if (c.local_dim > 0) { FILE* lf = fopen(local_path.c_str(), "rb"); if (lf) { fclose(lf);
+        local = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, c.local_dim, T); ggml_set_input(local); } }
+
+    ggml_tensor* vel = ggml_cont(ctx, sa3::dit_forward(ctx, W, x, tfeat, cross, glob, pos, ones, c, local));
     ggml_set_output(vel);
 
     ggml_cgraph* gf = ggml_new_graph_custom(ctx, 32768, /*grads=*/false); // DiT has many nodes
@@ -57,6 +63,7 @@ int main(int argc, char** argv) {
         ggml_backend_tensor_set(t, b.data(), 0, b.size()*sizeof(float));
     };
     setf(x, "dit_x.f32"); setf(tfeat, "dit_tfeat.f32"); setf(cross, "dit_cross.f32"); setf(glob, "dit_global.f32");
+    if (local) setf(local, "dit_local.f32");
     std::vector<int32_t> posbuf(S); for (int i = 0; i < S; i++) posbuf[i] = i;
     ggml_backend_tensor_set(pos, posbuf.data(), 0, posbuf.size()*sizeof(int32_t));
     float one = 1.0f; ggml_backend_tensor_set(ones, &one, 0, sizeof(float));
