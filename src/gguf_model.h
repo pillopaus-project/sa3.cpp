@@ -10,11 +10,27 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace sa3 {
+
+// Pick the compute backend: a registered GPU device (CUDA when the CUDA backend is
+// linked) unless SA3_DEVICE=cpu forces CPU. In a CPU-only build the registry has no
+// GPU device, so this transparently returns the CPU backend — same code, both builds.
+inline ggml_backend_t make_backend() {
+    const char* dev = getenv("SA3_DEVICE");
+    if (!(dev && strcmp(dev, "cpu") == 0)) {
+        ggml_backend_dev_t gpu = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+        if (gpu) {
+            ggml_backend_t b = ggml_backend_dev_init(gpu, nullptr);
+            if (b) { fprintf(stderr, "[sa3] backend: %s\n", ggml_backend_name(b)); return b; }
+        }
+    }
+    return ggml_backend_cpu_init();
+}
 
 struct GgufModel {
     ggml_context*         ctx     = nullptr;
@@ -63,7 +79,7 @@ struct GgufModel {
 // from the file at the offsets gguf reports.
 inline GgufModel load_gguf(const char* path, ggml_backend_t backend = nullptr) {
     GgufModel m;
-    m.backend = backend ? backend : ggml_backend_cpu_init();
+    m.backend = backend ? backend : make_backend();
 
     gguf_init_params gp = { /*no_alloc=*/true, /*ctx=*/&m.ctx };
     m.gguf = gguf_init_from_file(path, gp);
