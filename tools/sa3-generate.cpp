@@ -190,22 +190,33 @@ int main(int argc, char** argv) {
     ggml_init_params eip = { (size_t)512*1024*1024, nullptr, true };
     ggml_context* ectx = ggml_init(eip);
     ggml_tensor* z = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, sc.latent, T);
+    const int N2 = sc.chunk ? Ndec + 2*sc.shift : 0;       // SAME-S needs a shifted 2nd mask
     ggml_tensor* pos_e = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, Ndec);
     ggml_tensor* mask_e = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, Ndec, Ndec);
-    for (ggml_tensor* t : {z, pos_e, mask_e}) ggml_set_input(t);
-    ggml_tensor* audio = ggml_cont(ectx, sa3::same_decode(ectx, AE, z, sc, T, pos_e, mask_e).audio);
+    ggml_set_input(z); ggml_set_input(pos_e); ggml_set_input(mask_e);
+    ggml_tensor *pos2_e = nullptr, *mask2_e = nullptr;
+    if (sc.chunk) {
+        pos2_e  = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, N2);
+        mask2_e = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, N2, N2);
+        ggml_set_input(pos2_e); ggml_set_input(mask2_e);
+    }
+    ggml_tensor* audio = ggml_cont(ectx, sa3::same_decode(ectx, AE, z, sc, T, pos_e, mask_e, pos2_e, mask2_e).audio);
     ggml_set_output(audio);
     ggml_cgraph* gf_dec = ggml_new_graph_custom(ectx, 32768, false);
     ggml_build_forward_expand(gf_dec, audio);
     ggml_gallocr_t alloc_dec = ggml_gallocr_new(ggml_backend_get_default_buffer_type(AE.backend));
     ggml_gallocr_alloc_graph(alloc_dec, gf_dec);
     ggml_backend_tensor_set(z, host_x.data(), 0, N*sizeof(float));
-    std::vector<int32_t> pe(Ndec); for (int i = 0; i < Ndec; i++) pe[i] = i;
-    ggml_backend_tensor_set(pos_e, pe.data(), 0, pe.size()*sizeof(int32_t));
-    std::vector<float> me((size_t)Ndec*Ndec);
-    for (int q = 0; q < Ndec; q++) for (int k = 0; k < Ndec; k++)
-        me[(size_t)q*Ndec+k] = (std::abs(q-k) <= sc.sliding_window) ? 0.0f : -INFINITY;
-    ggml_backend_tensor_set(mask_e, me.data(), 0, me.size()*sizeof(float));
+    auto set_pos = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
+    auto set_mask = [&](ggml_tensor* mt, int M){
+        std::vector<float> b((size_t)M*M);
+        for (int q=0;q<M;q++) for (int k=0;k<M;k++)
+            b[(size_t)q*M+k] = sc.chunk ? ((q/sc.eff_chunk==k/sc.eff_chunk)?0.0f:-INFINITY)
+                                        : ((std::abs(q-k)<=sc.sliding_window)?0.0f:-INFINITY);
+        ggml_backend_tensor_set(mt, b.data(), 0, b.size()*sizeof(float));
+    };
+    set_pos(pos_e, Ndec); set_mask(mask_e, Ndec);
+    if (sc.chunk) { set_pos(pos2_e, N2); set_mask(mask2_e, N2); }
     ggml_backend_graph_compute(AE.backend, gf_dec);
     const int n_samp = (int)audio->ne[0], n_ch = (int)audio->ne[1];
     std::vector<float> ab((size_t)n_samp*n_ch);
