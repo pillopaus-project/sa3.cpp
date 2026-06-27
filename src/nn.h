@@ -46,6 +46,20 @@ inline ggml_tensor* rope_neox(ggml_context* ctx, ggml_tensor* a, ggml_tensor* po
                          /*beta_fast=*/0.0f, /*beta_slow=*/0.0f);
 }
 
+// Block-diagonal self-attention: q,k,v [d, N, H] with N = cc*nb; each block of cc tokens
+// attends only within itself. Mathematically identical to dense sdpa with a block-diagonal
+// mask, but O(N*cc) instead of O(N^2) — the SAME-S (chunked) decoder/encoder path.
+inline ggml_tensor* attn_blockdiag(ggml_context* ctx, ggml_tensor* q, ggml_tensor* k,
+                                   ggml_tensor* v, int cc, float scale) {
+    const int64_t d = q->ne[0], N = q->ne[1], H = q->ne[2], nb = N / cc;
+    auto blk = [&](ggml_tensor* t){ return ggml_reshape_4d(ctx, t, d, cc, nb, H); };   // [d, cc, nb, H]
+    ggml_tensor* kq = ggml_mul_mat(ctx, blk(k), blk(q));               // [cc(k), cc(q), nb, H]
+    kq = ggml_soft_max_ext(ctx, kq, nullptr, scale, 0.0f);            // softmax over keys, no mask
+    ggml_tensor* vt = ggml_cont(ctx, ggml_permute(ctx, blk(v), 1, 0, 2, 3)); // [cc, d, nb, H]
+    ggml_tensor* o = ggml_mul_mat(ctx, vt, kq);                       // [d, cc, nb, H]
+    return ggml_reshape_3d(ctx, o, d, N, H);
+}
+
 // Scaled-dot-product attention with an additive mask.
 // q,k,v: [d, N, H]; mask: [Nk, Nq] (0 / -inf). Returns [d, Nq, H].
 inline ggml_tensor* sdpa(ggml_context* ctx, ggml_tensor* q, ggml_tensor* k, ggml_tensor* v,

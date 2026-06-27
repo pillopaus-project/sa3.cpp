@@ -97,7 +97,11 @@ inline ggml_tensor* same_block(ggml_context* ctx, const GgufModel& W, const std:
     auto toAttn = [&](ggml_tensor* a){ return ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)); }; // [dh,nh,N]->[dh,N,nh]
     q=toAttn(q); k=toAttn(k); v=toAttn(v); qd=toAttn(qd); kd=toAttn(kd);
 
-    ggml_tensor* o = ggml_sub(ctx, nn::sdpa(ctx,q,k,v,mask,scale), nn::sdpa(ctx,qd,kd,v,mask,scale)); // [dh,N,nh]
+    // differential attention. SAME-S (chunked): block-diagonal local attention (O(N*cc), mask unused).
+    // SAME-L (sliding window): dense masked sdpa for now (band) — local path is step 2.
+    ggml_tensor* o = c.chunk
+        ? ggml_sub(ctx, nn::attn_blockdiag(ctx,q,k,v,c.eff_chunk,scale), nn::attn_blockdiag(ctx,qd,kd,v,c.eff_chunk,scale))
+        : ggml_sub(ctx, nn::sdpa(ctx,q,k,v,mask,scale), nn::sdpa(ctx,qd,kd,v,mask,scale));         // [dh,N,nh]
     o = ggml_cont(ctx, ggml_permute(ctx, o, 0, 2, 1, 3));            // [dh,nh,N]
     o = ggml_reshape_2d(ctx, o, dim, N);
     o = ggml_mul_mat(ctx, W.get(p+"self_attn.to_out.weight"), o);

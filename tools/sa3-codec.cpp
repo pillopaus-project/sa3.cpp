@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
 
     auto set_pos = [&](ggml_tensor* p, int64_t n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
     auto set_mask = [&](ggml_tensor* mt, int64_t M){
+        if (!mt->buffer) return;   // mask unused (SAME-S block-diagonal attention needs none)
         std::vector<float> mb = sa3::build_attn_mask(c, (int)M);
         ggml_backend_tensor_set(mt, mb.data(), 0, mb.size()*sizeof(float));
     };

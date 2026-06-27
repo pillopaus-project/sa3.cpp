@@ -53,6 +53,7 @@ static std::vector<float> tensor_to_host(const sa3::GgufModel& M, const std::str
 }
 
 static void set_same_attn_mask(ggml_tensor* mt, const sa3::SameConfig& sc, int M) {
+    if (!mt->buffer) return;   // mask unused (SAME-S block-diagonal attention needs none)
     std::vector<float> f32 = sa3::build_attn_mask(sc, M);
     if (mt->type == GGML_TYPE_F16) {
         std::vector<ggml_fp16_t> f16(f32.size());
