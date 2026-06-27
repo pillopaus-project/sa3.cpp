@@ -40,6 +40,8 @@ int main(int argc, char** argv) {
     const char* tok_p = nullptr; const char* t5_p = nullptr; const char* dit_p = nullptr; const char* same_p = nullptr;
     std::string prompt = "Upbeat funk groove with slap bass, bright horns, tight drums";
     const char* wav_p = "song.wav";
+    const char* init_p = nullptr;            // audio2audio: init WAV to vary from
+    float init_noise_level = 0.85f;          // sigma_max for audio2audio (1.0 == text2music)
     int frames = 128, steps = 8; uint64_t seed = 0;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
@@ -51,6 +53,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--steps")  && i+1 < argc) steps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--seed")   && i+1 < argc) seed = strtoull(argv[++i], nullptr, 10);
         else if (!strcmp(argv[i], "--out")    && i+1 < argc) wav_p = argv[++i];
+        else if (!strcmp(argv[i], "--init")   && i+1 < argc) init_p = argv[++i];
+        else if (!strcmp(argv[i], "--init-noise-level") && i+1 < argc) init_noise_level = (float)atof(argv[++i]);
     }
     if (!tok_p || !t5_p || !dit_p || !same_p) {
         fprintf(stderr, "usage: sa3-generate --tok <f> --t5 <f> --dit <f> --same <f> --prompt \"...\" --frames N --steps N --seed S --out song.wav\n");
@@ -62,9 +66,30 @@ int main(int argc, char** argv) {
     const sa3::T5GemmaConfig tc = sa3::T5GemmaConfig::from(TE);
     const sa3::DitConfig     dc = sa3::DitConfig::from(DIT);
     const sa3::SameConfig    sc = sa3::SameConfig::from(AE);
+    const int ds = sc.patch_size * sc.output_seg;          // downsampling ratio (4096 samples/frame)
+
+    // ---------- audio2audio: load init WAV, derive T from it (overrides --frames) ----------
+    std::vector<float> init_audio; int init_L = 0;         // padded planar [init_L, 2]
+    if (init_p) {
+        int n_samp, n_ch, sr;
+        std::vector<float> raw = sa3::read_wav_planar(init_p, n_samp, n_ch, sr);
+        if (n_ch != sc.out_channels / sc.patch_size) { fprintf(stderr, "init WAV must be %d-channel\n", sc.out_channels / sc.patch_size); return 1; }
+        if (sr != 44100) fprintf(stderr, "warning: init WAV is %d Hz, expected 44100\n", sr);
+        // pad up so T is an integer (and EVEN for SAME-S, which needs T*17 divisible by eff_chunk)
+        const int mult = sc.chunk ? 2 * ds : ds;
+        init_L = ((n_samp + mult - 1) / mult) * mult;
+        init_audio.assign((size_t)init_L * n_ch, 0.0f);
+        for (int c = 0; c < n_ch; c++)                      // planar copy, zero-padded tail
+            memcpy(&init_audio[(size_t)c*init_L], &raw[(size_t)c*n_samp], n_samp * sizeof(float));
+        frames = init_L / ds;
+        printf("audio2audio: init \"%s\" %.2fs -> T=%d (padded %.2fs), sigma_max=%.3f\n",
+               init_p, (float)n_samp/44100.0f, frames, (float)init_L/44100.0f, init_noise_level);
+    }
+
     const int T = frames, max_len = (int)TE.u32("t5g.max_length");
     const int cond_dim = tc.dim, ctx_len = max_len + 1;     // t5gemma tokens + 1 seconds token
     const int N = T * dc.io;
+    const float sigma_max = init_p ? init_noise_level : 1.0f;
 
     // ---------- tokenize + pad ----------
     std::vector<int32_t> enc = tok.encode(prompt);
@@ -137,14 +162,50 @@ int main(int argc, char** argv) {
     const float logsnr_start = -6.2f, logsnr_end = 2.0f, coef = logsnr_end - logsnr_start;
     std::vector<float> sigmas(steps+1);
     for (int i = 0; i <= steps; i++) {
-        float t_lin = 1.0f - (float)i / steps;
-        sigmas[i] = (i == 0) ? 1.0f : (i == steps) ? 0.0f : 1.0f / (1.0f + expf(-(coef*t_lin - logsnr_end)));
+        float t_in = sigma_max * (1.0f - (float)i / steps);    // linspace(sigma_max,0) before the LogSNR shift
+        sigmas[i] = (i == 0) ? sigma_max : (i == steps) ? 0.0f : 1.0f / (1.0f + expf(-(coef*t_in - logsnr_end)));
     }
 
-    // ---------- noise ----------
+    // ---------- audio2audio: encode init audio -> latent z_init [latent, T] ----------
+    std::vector<float> z_init;
+    if (init_p) {
+        z_init.resize(N);
+        const int Nenc  = T * sc.sub_chunk;
+        const int Nenc2 = sc.chunk ? Nenc + 2*sc.shift : 0;
+        ggml_init_params encp = { (size_t)512*1024*1024, nullptr, true };
+        ggml_context* enctx = ggml_init(encp);
+        ggml_tensor* a_in   = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, init_L, sc.out_channels / sc.patch_size);
+        ggml_tensor* pos_a  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc);
+        ggml_tensor* mask_a = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc, Nenc);
+        ggml_set_input(a_in); ggml_set_input(pos_a); ggml_set_input(mask_a);
+        ggml_tensor *pos_a2 = nullptr, *mask_a2 = nullptr;
+        if (sc.chunk) {
+            pos_a2  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc2);
+            mask_a2 = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc2, Nenc2);
+            ggml_set_input(pos_a2); ggml_set_input(mask_a2);
+        }
+        ggml_tensor* zt = ggml_cont(enctx, sa3::same_encode(enctx, AE, a_in, sc, T, pos_a, mask_a, pos_a2, mask_a2).z);
+        ggml_set_output(zt);
+        ggml_cgraph* gf_enc = ggml_new_graph_custom(enctx, 32768, false);
+        ggml_build_forward_expand(gf_enc, zt);
+        ggml_gallocr_t alloc_enc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(AE.backend));
+        ggml_gallocr_alloc_graph(alloc_enc, gf_enc);
+        ggml_backend_tensor_set(a_in, init_audio.data(), 0, init_audio.size()*sizeof(float));
+        auto set_pos  = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
+        auto set_mask = [&](ggml_tensor* mt, int M){ std::vector<float> b = sa3::build_attn_mask(sc, M); ggml_backend_tensor_set(mt, b.data(), 0, b.size()*sizeof(float)); };
+        set_pos(pos_a, Nenc); set_mask(mask_a, Nenc);
+        if (sc.chunk) { set_pos(pos_a2, Nenc2); set_mask(mask_a2, Nenc2); }
+        ggml_backend_graph_compute(AE.backend, gf_enc);
+        ggml_backend_tensor_get(zt, z_init.data(), 0, N*sizeof(float));
+        ggml_gallocr_free(alloc_enc); ggml_free(enctx);
+    }
+
+    // ---------- noise (audio2audio: noise = init*(1-sigma_max) + noise*sigma_max) ----------
     sa3::Rng rng(seed);
     std::vector<float> host_x(N); rng.fill_normal(host_x.data(), N);
     std::vector<float> stepnoise((size_t)steps*N); rng.fill_normal(stepnoise.data(), stepnoise.size());
+    if (init_p)
+        for (int j = 0; j < N; j++) host_x[j] = z_init[j]*(1.0f - sigma_max) + host_x[j]*sigma_max;
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
