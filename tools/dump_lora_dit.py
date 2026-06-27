@@ -20,7 +20,7 @@ def main():
     ap.add_argument("--config", required=True)
     ap.add_argument("--src", required=True)
     ap.add_argument("--hf_home", required=True)
-    ap.add_argument("--lora", required=True, help=".ckpt adapter to apply")
+    ap.add_argument("--lora", required=True, action="append", help=".ckpt adapter(s); repeat for multi-LoRA, applied in order")
     ap.add_argument("--out", default="refdata_lora")
     ap.add_argument("--frames", type=int, default=32)
     ap.add_argument("--t", type=float, default=0.5)
@@ -50,9 +50,9 @@ def main():
     wrapper.float()
     print(f"loaded wrapper | missing={len(missing)} unexpected={len(unexpected)}")
 
-    load_and_apply_loras(wrapper, [args.lora], config["model_type"])
+    load_and_apply_loras(wrapper, args.lora, config["model_type"])
     set_lora_strength(wrapper.model.model, args.strength)
-    print(f"applied lora {args.lora} at strength {args.strength}")
+    print(f"applied {len(args.lora)} lora(s) {args.lora} at strength {args.strength} (order = flag order)")
 
     dit = wrapper.model.model
     dmc = config["model"]["diffusion"]["config"]

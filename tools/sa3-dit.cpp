@@ -20,7 +20,7 @@ static std::vector<float> read_f32(const char* path, size_t n) {
 
 int main(int argc, char** argv) {
     const char* gguf_path = nullptr; const char* dir = "refdata"; const char* outdir = "cppout";
-    const char* lora_path = nullptr; float lora_strength = 1.0f;
+    std::vector<std::pair<std::string,float>> lora_specs;   // (gguf, strength) in flag order
     int frames = 32, ctx_len = 257;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--gguf")   && i+1 < argc) gguf_path = argv[++i];
@@ -28,21 +28,25 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--frames") && i+1 < argc) frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--ctx")    && i+1 < argc) ctx_len = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--out")    && i+1 < argc) outdir = argv[++i];
-        else if (!strcmp(argv[i], "--lora")   && i+1 < argc) lora_path = argv[++i];
-        else if (!strcmp(argv[i], "--lora-strength") && i+1 < argc) lora_strength = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--lora")   && i+1 < argc) lora_specs.push_back({argv[++i], 1.0f});
+        else if (!strcmp(argv[i], "--lora-strength") && i+1 < argc) {
+            if (lora_specs.empty()) { fprintf(stderr, "--lora-strength must follow a --lora\n"); return 1; }
+            lora_specs.back().second = (float)atof(argv[++i]);
+        }
     }
-    if (!gguf_path) { fprintf(stderr, "usage: sa3-dit --gguf <f> --in <dir> --frames N --ctx 257 --out <dir> [--lora <gguf> --lora-strength S]\n"); return 1; }
+    if (!gguf_path) { fprintf(stderr, "usage: sa3-dit --gguf <f> --in <dir> --frames N --ctx 257 --out <dir> [--lora <gguf> --lora-strength S]...\n"); return 1; }
 
     sa3::GgufModel W = sa3::load_gguf(gguf_path);
     const sa3::DitConfig c = sa3::DitConfig::from(W);
 
     std::vector<sa3::LoraAdapter> adapters;
     sa3::LoraStack lstack;
-    if (lora_path) {
-        adapters.push_back(sa3::load_lora(lora_path, lora_strength));
+    for (auto& ls : lora_specs) adapters.push_back(sa3::load_lora(ls.first.c_str(), ls.second));
+    if (!adapters.empty()) {
         lstack = sa3::apply_loras(W, adapters);
-        printf("applied lora %s (type=%s rank=%d alpha=%.1f strength=%.2f, %zu overrides)\n",
-               lora_path, adapters[0].type.c_str(), adapters[0].rank, adapters[0].alpha, lora_strength, W.overrides.size());
+        printf("applied %zu lora(s) -> %zu overrides:\n", adapters.size(), W.overrides.size());
+        for (size_t k = 0; k < adapters.size(); k++)
+            printf("  [%zu] %s strength=%.2f\n", k, lora_specs[k].first.c_str(), adapters[k].strength);
     }
     const int T = frames, S = c.mem_tokens + T;
 

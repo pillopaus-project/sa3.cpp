@@ -6,6 +6,7 @@
 #include "t5gemma.h"
 #include "dit.h"
 #include "same_ae.h"
+#include "lora.h"
 #include "rng.h"
 #include "wav.h"
 
@@ -43,6 +44,7 @@ int main(int argc, char** argv) {
     const char* init_p = nullptr;            // audio2audio / inpaint: source WAV (encoded to z_init)
     float init_noise_level = 0.85f;          // sigma_max for audio2audio (1.0 == text2music)
     float inpaint_start = -1.0f, inpaint_end = -1.0f;   // inpaint: regenerate this [start,end] sec region
+    std::vector<std::pair<std::string,float>> lora_specs;   // (gguf, strength) applied in flag order
     int frames = 128, steps = 8; uint64_t seed = 0;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
@@ -58,6 +60,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--init-noise-level") && i+1 < argc) init_noise_level = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--inpaint-start") && i+1 < argc) inpaint_start = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--inpaint-end")   && i+1 < argc) inpaint_end   = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--lora")   && i+1 < argc) lora_specs.push_back({argv[++i], 1.0f});
+        else if (!strcmp(argv[i], "--lora-strength") && i+1 < argc) {   // sets the most recent --lora
+            if (lora_specs.empty()) { fprintf(stderr, "--lora-strength must follow a --lora\n"); return 1; }
+            lora_specs.back().second = (float)atof(argv[++i]);
+        }
     }
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);   // inpaint mode (needs --init source)
     if (!tok_p || !t5_p || !dit_p || !same_p) {
@@ -71,6 +78,18 @@ int main(int argc, char** argv) {
     const sa3::DitConfig     dc = sa3::DitConfig::from(DIT);
     const sa3::SameConfig    sc = sa3::SameConfig::from(AE);
     const int ds = sc.patch_size * sc.output_seg;          // downsampling ratio (4096 samples/frame)
+
+    // ---------- LoRA/DoRA adapters: recompute W_eff in weight space (chained in flag order) ----------
+    std::vector<sa3::LoraAdapter> adapters;
+    sa3::LoraStack lstack;
+    for (auto& ls : lora_specs) adapters.push_back(sa3::load_lora(ls.first.c_str(), ls.second));
+    if (!adapters.empty()) {
+        lstack = sa3::apply_loras(DIT, adapters);
+        printf("lora: applied %zu adapter(s) -> %zu overridden weights:\n", adapters.size(), DIT.overrides.size());
+        for (size_t i = 0; i < adapters.size(); i++)
+            printf("  [%zu] %s  type=%s strength=%.2f\n", i, lora_specs[i].first.c_str(),
+                   adapters[i].type.c_str(), adapters[i].strength);
+    }
 
     // ---------- load source WAV; derive output T (overrides --frames) ----------
     // audio2audio: output length = the source. inpaint/continuation: output length =
