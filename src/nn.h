@@ -4,7 +4,15 @@
 
 #include "ggml.h"
 
+#include <cstdlib>
+#include <cstring>
+
 namespace sa3::nn {
+
+inline bool flash_attn_enabled() {
+    const char* p = getenv("SA3_FLASH_ATTN");
+    return p && strcmp(p, "0") != 0;
+}
 
 // DynamicTanh: y = tanh(alpha * x) * gamma + beta.
 // alpha is [1] (broadcast); gamma/beta are [ne0] (broadcast over the rest).
@@ -42,6 +50,12 @@ inline ggml_tensor* rope_neox(ggml_context* ctx, ggml_tensor* a, ggml_tensor* po
 // q,k,v: [d, N, H]; mask: [Nk, Nq] (0 / -inf). Returns [d, Nq, H].
 inline ggml_tensor* sdpa(ggml_context* ctx, ggml_tensor* q, ggml_tensor* k, ggml_tensor* v,
                          ggml_tensor* mask, float scale) {
+    if (flash_attn_enabled() && (!mask || mask->type == GGML_TYPE_F16)) {
+        ggml_tensor* out = ggml_flash_attn_ext(ctx, q, k, v, mask, scale, 0.0f, 0.0f);
+        ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
+        out = ggml_cont(ctx, ggml_permute(ctx, out, 0, 2, 1, 3)); // [d, Nq, H, 1]
+        return ggml_reshape_3d(ctx, out, q->ne[0], q->ne[1], q->ne[2]);
+    }
     ggml_tensor* kq = ggml_mul_mat(ctx, k, q);                 // [Nk, Nq, H]
     kq = ggml_soft_max_ext(ctx, kq, mask, scale, 0.0f);        // softmax over Nk
     ggml_tensor* vt = ggml_cont(ctx, ggml_permute(ctx, v, 1, 0, 2, 3)); // [Nk, d, H]

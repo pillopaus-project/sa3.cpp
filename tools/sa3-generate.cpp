@@ -11,6 +11,7 @@
 #include "wav.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -30,6 +31,20 @@ static void expo_features(float t, std::vector<float>& out, int dim, float min_f
     }
 }
 
+static double wall_time_s() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+}
+
+static bool profile_enabled() {
+    const char* p = getenv("SA3_PROFILE");
+    return p && strcmp(p, "0") != 0;
+}
+
+static void profile_log(bool enabled, const char* label, double seconds) {
+    if (enabled) fprintf(stderr, "[sa3-profile] %-18s %8.3f ms\n", label, seconds * 1000.0);
+}
+
 static std::vector<float> tensor_to_host(const sa3::GgufModel& M, const std::string& name) {
     ggml_tensor* t = M.get(name);
     std::vector<float> b(ggml_nelements(t));
@@ -37,7 +52,20 @@ static std::vector<float> tensor_to_host(const sa3::GgufModel& M, const std::str
     return b;
 }
 
+static void set_same_attn_mask(ggml_tensor* mt, const sa3::SameConfig& sc, int M) {
+    std::vector<float> f32 = sa3::build_attn_mask(sc, M);
+    if (mt->type == GGML_TYPE_F16) {
+        std::vector<ggml_fp16_t> f16(f32.size());
+        ggml_fp32_to_fp16_row(f32.data(), f16.data(), (int64_t)f32.size());
+        ggml_backend_tensor_set(mt, f16.data(), 0, f16.size() * sizeof(ggml_fp16_t));
+    } else {
+        ggml_backend_tensor_set(mt, f32.data(), 0, f32.size() * sizeof(float));
+    }
+}
+
 int main(int argc, char** argv) {
+    const bool prof = profile_enabled();
+    const double t_total0 = wall_time_s();
     const char* tok_p = nullptr; const char* t5_p = nullptr; const char* dit_p = nullptr; const char* same_p = nullptr;
     std::string prompt = "Upbeat funk groove with slap bass, bright horns, tight drums";
     const char* wav_p = "song.wav";
@@ -72,11 +100,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    double t0 = wall_time_s();
     sa3::Tokenizer tok = sa3::Tokenizer::load(tok_p);
-    sa3::GgufModel TE = sa3::load_gguf(t5_p), DIT = sa3::load_gguf(dit_p), AE = sa3::load_gguf(same_p);
+    profile_log(prof, "load_tokenizer", wall_time_s() - t0);
+    t0 = wall_time_s();
+    sa3::GgufModel TE = sa3::load_gguf(t5_p);
+    profile_log(prof, "load_t5", wall_time_s() - t0);
+    t0 = wall_time_s();
+    sa3::GgufModel DIT = sa3::load_gguf(dit_p);
+    profile_log(prof, "load_dit", wall_time_s() - t0);
+    t0 = wall_time_s();
+    sa3::GgufModel AE = sa3::load_gguf(same_p);
+    profile_log(prof, "load_same", wall_time_s() - t0);
     const sa3::T5GemmaConfig tc = sa3::T5GemmaConfig::from(TE);
     const sa3::DitConfig     dc = sa3::DitConfig::from(DIT);
     const sa3::SameConfig    sc = sa3::SameConfig::from(AE);
+    const ggml_type ae_mask_type = sa3::nn::flash_attn_enabled() ? GGML_TYPE_F16 : GGML_TYPE_F32;
     const int ds = sc.patch_size * sc.output_seg;          // downsampling ratio (4096 samples/frame)
 
     // ---------- LoRA/DoRA adapters: recompute W_eff in weight space (chained in flag order) ----------
@@ -134,6 +173,8 @@ int main(int argc, char** argv) {
     // ---------- T5Gemma encode ----------
     std::vector<float> hidden;
     {
+        const double t_t5_total = wall_time_s();
+        double tp = wall_time_s();
         ggml_init_params ip = { (size_t)256*1024*1024, nullptr, true };
         ggml_context* ctx = ggml_init(ip);
         ggml_tensor* ids_t  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, max_len);
@@ -144,8 +185,12 @@ int main(int argc, char** argv) {
         ggml_set_output(h);
         ggml_cgraph* gf = ggml_new_graph_custom(ctx, 8192, false);
         ggml_build_forward_expand(gf, h);
+        profile_log(prof, "t5_build", wall_time_s() - tp);
+        tp = wall_time_s();
         ggml_gallocr_t alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(TE.backend));
         ggml_gallocr_alloc_graph(alloc, gf);
+        profile_log(prof, "t5_alloc", wall_time_s() - tp);
+        tp = wall_time_s();
         ggml_backend_tensor_set(ids_t, ids.data(), 0, max_len*sizeof(int32_t));
         std::vector<int32_t> pos(max_len); for (int i = 0; i < max_len; i++) pos[i] = i;
         ggml_backend_tensor_set(pos_t, pos.data(), 0, max_len*sizeof(int32_t));
@@ -153,13 +198,20 @@ int main(int argc, char** argv) {
         for (int q = 0; q < max_len; q++) for (int k = 0; k < max_len; k++)
             mb[(size_t)q*max_len+k] = attn[k] ? 0.0f : -INFINITY;
         ggml_backend_tensor_set(mask_t, mb.data(), 0, mb.size()*sizeof(float));
+        profile_log(prof, "t5_upload", wall_time_s() - tp);
+        tp = wall_time_s();
         ggml_backend_graph_compute(TE.backend, gf);
+        profile_log(prof, "t5_compute", wall_time_s() - tp);
+        tp = wall_time_s();
         hidden.resize((size_t)cond_dim*max_len);
         ggml_backend_tensor_get(h, hidden.data(), 0, hidden.size()*sizeof(float));
+        profile_log(prof, "t5_download", wall_time_s() - tp);
         ggml_gallocr_free(alloc); ggml_free(ctx);
+        profile_log(prof, "t5_total", wall_time_s() - t_t5_total);
     }
 
     // ---------- conditioning assembly (host) ----------
+    t0 = wall_time_s();
     // learned padding: replace padded token columns with the padding embedding
     std::vector<float> pad_emb = tensor_to_host(TE, "te.padding_embedding");   // [cond_dim]
     for (int p = 0; p < max_len; p++)
@@ -190,6 +242,7 @@ int main(int argc, char** argv) {
         FILE* f2 = fopen((std::string(dc_dir)+"/gen_global.f32").c_str(), "wb");
         fwrite(globb.data(), sizeof(float), globb.size(), f2); fclose(f2);
     }
+    profile_log(prof, "conditioning", wall_time_s() - t0);
 
     // ---------- schedule (LogSNRShift rate=0: sigmoid((end-start)*t - end), endpoints forced) ----------
     const float logsnr_start = -6.2f, logsnr_end = 2.0f, coef = logsnr_end - logsnr_start;
@@ -209,12 +262,12 @@ int main(int argc, char** argv) {
         ggml_context* enctx = ggml_init(encp);
         ggml_tensor* a_in   = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, init_L, sc.out_channels / sc.patch_size);
         ggml_tensor* pos_a  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc);
-        ggml_tensor* mask_a = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc, Nenc);
+        ggml_tensor* mask_a = ggml_new_tensor_2d(enctx, ae_mask_type, Nenc, Nenc);
         ggml_set_input(a_in); ggml_set_input(pos_a); ggml_set_input(mask_a);
         ggml_tensor *pos_a2 = nullptr, *mask_a2 = nullptr;
         if (sc.chunk) {
             pos_a2  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc2);
-            mask_a2 = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc2, Nenc2);
+            mask_a2 = ggml_new_tensor_2d(enctx, ae_mask_type, Nenc2, Nenc2);
             ggml_set_input(pos_a2); ggml_set_input(mask_a2);
         }
         ggml_tensor* zt = ggml_cont(enctx, sa3::same_encode(enctx, AE, a_in, sc, T, pos_a, mask_a, pos_a2, mask_a2).z);
@@ -225,7 +278,7 @@ int main(int argc, char** argv) {
         ggml_gallocr_alloc_graph(alloc_enc, gf_enc);
         ggml_backend_tensor_set(a_in, init_audio.data(), 0, init_audio.size()*sizeof(float));
         auto set_pos  = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
-        auto set_mask = [&](ggml_tensor* mt, int M){ std::vector<float> b = sa3::build_attn_mask(sc, M); ggml_backend_tensor_set(mt, b.data(), 0, b.size()*sizeof(float)); };
+        auto set_mask = [&](ggml_tensor* mt, int M){ set_same_attn_mask(mt, sc, M); };
         set_pos(pos_a, Nenc); set_mask(mask_a, Nenc);
         if (sc.chunk) { set_pos(pos_a2, Nenc2); set_mask(mask_a2, Nenc2); }
         ggml_backend_graph_compute(AE.backend, gf_enc);
@@ -264,6 +317,8 @@ int main(int argc, char** argv) {
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
+    const double t_dit_total = wall_time_s();
+    double tp_dit = wall_time_s();
     ggml_init_params dip = { (size_t)512*1024*1024, nullptr, true };
     ggml_context* dctx = ggml_init(dip);
     ggml_tensor* x_in  = ggml_new_tensor_2d(dctx, GGML_TYPE_F32, dc.io, T);
@@ -279,12 +334,17 @@ int main(int argc, char** argv) {
     ggml_set_output(vel);
     ggml_cgraph* gf_dit = ggml_new_graph_custom(dctx, 32768, false);
     ggml_build_forward_expand(gf_dit, vel);
+    profile_log(prof, "dit_build", wall_time_s() - tp_dit);
+    tp_dit = wall_time_s();
     ggml_gallocr_t alloc_dit = ggml_gallocr_new(ggml_backend_get_default_buffer_type(DIT.backend));
     ggml_gallocr_alloc_graph(alloc_dit, gf_dit);
+    profile_log(prof, "dit_alloc", wall_time_s() - tp_dit);
     std::vector<int32_t> posb(S); for (int i = 0; i < S; i++) posb[i] = i;
     const float one = 1.0f;
     std::vector<float> tf, vbuf(N);
+    double dit_upload = 0.0, dit_compute = 0.0, dit_download_update = 0.0;
     for (int i = 0; i < steps; i++) {
+        double ts = wall_time_s();
         ggml_backend_tensor_set(cross, crossb.data(), 0, crossb.size()*sizeof(float));  // re-set each step (gallocr recycle)
         ggml_backend_tensor_set(glob,  globb.data(),  0, globb.size()*sizeof(float));
         ggml_backend_tensor_set(pos_d, posb.data(),   0, posb.size()*sizeof(int32_t));
@@ -293,54 +353,75 @@ int main(int argc, char** argv) {
         ggml_backend_tensor_set(x_in,  host_x.data(), 0, N*sizeof(float));
         expo_features(sigmas[i], tf, dc.time_dim, dc.time_min_freq, dc.time_max_freq);
         ggml_backend_tensor_set(tfeat, tf.data(), 0, tf.size()*sizeof(float));
+        dit_upload += wall_time_s() - ts;
+        ts = wall_time_s();
         ggml_backend_graph_compute(DIT.backend, gf_dit);
+        dit_compute += wall_time_s() - ts;
+        ts = wall_time_s();
         ggml_backend_tensor_get(vel, vbuf.data(), 0, N*sizeof(float));
         const float tcur = sigmas[i], tnext = sigmas[i+1];
         for (int j = 0; j < N; j++) {
             float denoised = host_x[j] - tcur * vbuf[j];
             host_x[j] = (1.0f - tnext) * denoised + tnext * stepnoise[(size_t)i*N + j];
         }
+        dit_download_update += wall_time_s() - ts;
         printf("  step %d/%d  t=%.4f\n", i+1, steps, tcur);
     }
+    profile_log(prof, "dit_upload", dit_upload);
+    profile_log(prof, "dit_compute", dit_compute);
+    profile_log(prof, "dit_get_update", dit_download_update);
+    profile_log(prof, "dit_total", wall_time_s() - t_dit_total);
     ggml_gallocr_free(alloc_dit); ggml_free(dctx);
 
     // ---------- decode -> WAV ----------
     const int Ndec = T * sc.sub_chunk;
+    const double t_dec_total = wall_time_s();
+    double tp_dec = wall_time_s();
     ggml_init_params eip = { (size_t)512*1024*1024, nullptr, true };
     ggml_context* ectx = ggml_init(eip);
     ggml_tensor* z = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, sc.latent, T);
     const int N2 = sc.chunk ? Ndec + 2*sc.shift : 0;       // SAME-S needs a shifted 2nd mask
     ggml_tensor* pos_e = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, Ndec);
-    ggml_tensor* mask_e = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, Ndec, Ndec);
+    ggml_tensor* mask_e = ggml_new_tensor_2d(ectx, ae_mask_type, Ndec, Ndec);
     ggml_set_input(z); ggml_set_input(pos_e); ggml_set_input(mask_e);
     ggml_tensor *pos2_e = nullptr, *mask2_e = nullptr;
     if (sc.chunk) {
         pos2_e  = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, N2);
-        mask2_e = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, N2, N2);
+        mask2_e = ggml_new_tensor_2d(ectx, ae_mask_type, N2, N2);
         ggml_set_input(pos2_e); ggml_set_input(mask2_e);
     }
     ggml_tensor* audio = ggml_cont(ectx, sa3::same_decode(ectx, AE, z, sc, T, pos_e, mask_e, pos2_e, mask2_e).audio);
     ggml_set_output(audio);
     ggml_cgraph* gf_dec = ggml_new_graph_custom(ectx, 32768, false);
     ggml_build_forward_expand(gf_dec, audio);
+    profile_log(prof, "dec_build", wall_time_s() - tp_dec);
+    tp_dec = wall_time_s();
     ggml_gallocr_t alloc_dec = ggml_gallocr_new(ggml_backend_get_default_buffer_type(AE.backend));
     ggml_gallocr_alloc_graph(alloc_dec, gf_dec);
+    profile_log(prof, "dec_alloc", wall_time_s() - tp_dec);
+    tp_dec = wall_time_s();
     ggml_backend_tensor_set(z, host_x.data(), 0, N*sizeof(float));
     auto set_pos = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
-    auto set_mask = [&](ggml_tensor* mt, int M){
-        std::vector<float> b = sa3::build_attn_mask(sc, M);
-        ggml_backend_tensor_set(mt, b.data(), 0, b.size()*sizeof(float));
-    };
+    auto set_mask = [&](ggml_tensor* mt, int M){ set_same_attn_mask(mt, sc, M); };
     set_pos(pos_e, Ndec); set_mask(mask_e, Ndec);
     if (sc.chunk) { set_pos(pos2_e, N2); set_mask(mask2_e, N2); }
+    profile_log(prof, "dec_upload", wall_time_s() - tp_dec);
+    tp_dec = wall_time_s();
     ggml_backend_graph_compute(AE.backend, gf_dec);
+    profile_log(prof, "dec_compute", wall_time_s() - tp_dec);
+    tp_dec = wall_time_s();
     const int n_samp = (int)audio->ne[0], n_ch = (int)audio->ne[1];
     std::vector<float> ab((size_t)n_samp*n_ch);
     ggml_backend_tensor_get(audio, ab.data(), 0, ab.size()*sizeof(float));
+    profile_log(prof, "dec_download", wall_time_s() - tp_dec);
+    tp_dec = wall_time_s();
     sa3::write_wav_planar(wav_p, ab.data(), n_samp, n_ch, 44100);
+    profile_log(prof, "write_wav", wall_time_s() - tp_dec);
+    profile_log(prof, "dec_total", wall_time_s() - t_dec_total);
     printf("wrote %s  (%.2fs, seed %llu)\n", wav_p, (float)n_samp/44100.0f, (unsigned long long)seed);
 
     ggml_gallocr_free(alloc_dec); ggml_free(ectx);
     TE.free(); DIT.free(); AE.free();
+    profile_log(prof, "total", wall_time_s() - t_total0);
     return 0;
 }

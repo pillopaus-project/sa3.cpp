@@ -3,6 +3,7 @@ refs/
 
 # Build artifacts
 build/
+build-cuda/
 *.o
 *.obj
 *.exe
