@@ -40,6 +40,30 @@ inline LoraAdapter load_lora(const char* path, float strength = 1.0f) {
     return a;
 }
 
+// Read any tensor (F32 or F16) into an F32 host buffer.
+inline void read_to_f32(ggml_tensor* t, std::vector<float>& dst) {
+    const int64_t n = ggml_nelements(t);
+    dst.resize(n);
+    if (t->type == GGML_TYPE_F16) {
+        std::vector<ggml_fp16_t> tmp(n);
+        ggml_backend_tensor_get(t, tmp.data(), 0, n*sizeof(ggml_fp16_t));
+        ggml_fp16_to_fp32_row(tmp.data(), dst.data(), n);
+    } else {
+        ggml_backend_tensor_get(t, dst.data(), 0, n*sizeof(float));
+    }
+}
+// Write an F32 host buffer into a tensor of t->type (F32 or F16) — keeps W_eff at the base dtype.
+inline void write_from_f32(ggml_tensor* t, const std::vector<float>& src) {
+    const int64_t n = ggml_nelements(t);
+    if (t->type == GGML_TYPE_F16) {
+        std::vector<ggml_fp16_t> tmp(n);
+        ggml_fp32_to_fp16_row(src.data(), tmp.data(), n);
+        ggml_backend_tensor_set(t, tmp.data(), 0, n*sizeof(ggml_fp16_t));
+    } else {
+        ggml_backend_tensor_set(t, src.data(), 0, n*sizeof(float));
+    }
+}
+
 // W_eff storage: own a context + backend buffer holding the override tensors.
 struct LoraStack {
     ggml_context*         ctx = nullptr;
@@ -72,7 +96,7 @@ inline LoraStack apply_loras(GgufModel& base, std::vector<LoraAdapter>& adapters
     std::vector<ggml_tensor*> outs; outs.reserve(targets.size());
     for (auto& wname : targets) {
         ggml_tensor* W0 = base.tensors[wname];
-        ggml_tensor* t = ggml_new_tensor_2d(st.ctx, GGML_TYPE_F32, W0->ne[0], W0->ne[1]);
+        ggml_tensor* t = ggml_new_tensor_2d(st.ctx, W0->type, W0->ne[0], W0->ne[1]);   // match base dtype (f16/f32)
         ggml_set_name(t, wname.c_str());
         outs.push_back(t);
     }
@@ -83,17 +107,13 @@ inline LoraStack apply_loras(GgufModel& base, std::vector<LoraAdapter>& adapters
     //   delta = B@A  (standard)  or  U@M_xs@V^T  (-xs);  V = W + (alpha/rank)*strength*delta;
     //   then a per-type post-transform (additive / dora-rows / dora-cols / bora). Spec: lora_spec_test.py.
     std::vector<float> w, A, B, U, Vm, M, mv, dl, Vb, mag, magc, inter, coln;
-    auto getv = [&](GgufModel& g, const std::string& n, std::vector<float>& dst){
-        ggml_tensor* t = g.get(n); dst.resize(ggml_nelements(t));
-        ggml_backend_tensor_get(t, dst.data(), 0, dst.size()*sizeof(float));
-    };
+    auto getv = [&](GgufModel& g, const std::string& n, std::vector<float>& dst){ read_to_f32(g.get(n), dst); };
     for (size_t ti = 0; ti < targets.size(); ti++) {
         const std::string& wname = targets[ti];
         std::string stem = wname.substr(0, wname.size()-7);
         ggml_tensor* W0 = base.tensors[wname];
         const int in = (int)W0->ne[0], out = (int)W0->ne[1];
-        w.resize((size_t)in*out);
-        ggml_backend_tensor_get(W0, w.data(), 0, w.size()*sizeof(float));     // w[o*in + i]
+        read_to_f32(W0, w);                                                  // w[o*in + i] (handles f16 base)
 
         for (auto& a : adapters) {
             const bool xs  = a.gguf.has(stem + ".M_xs");
@@ -153,7 +173,7 @@ inline LoraStack apply_loras(GgufModel& base, std::vector<LoraAdapter>& adapters
                 fprintf(stderr, "[lora] unknown adapter_type '%s'\n", ty.c_str()); exit(1);
             }
         }
-        ggml_backend_tensor_set(outs[ti], w.data(), 0, w.size()*sizeof(float));
+        write_from_f32(outs[ti], w);                                         // store W_eff at base dtype (f16/f32)
         base.overrides[wname] = outs[ti];
     }
     return st;
