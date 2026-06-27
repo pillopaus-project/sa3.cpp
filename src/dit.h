@@ -18,9 +18,12 @@ namespace sa3 {
 struct DitConfig {
     int io, dim, depth, heads, head_dim, cond_dim, mem_tokens, rot, time_dim;
     float rope_base, norm_eps, qk_eps, time_min_freq, time_max_freq;
+    bool differential;   // medium=true (5x qkv), small=false (3x qkv)
 
     static DitConfig from(const GgufModel& m) {
         DitConfig c;
+        int dk = gguf_find_key(m.gguf, "dit.differential");
+        c.differential = (dk < 0) ? true : (gguf_get_val_u32(m.gguf, dk) != 0);
         c.io         = m.u32("dit.io");
         c.dim        = m.u32("dit.dim");
         c.depth      = m.u32("dit.depth");
@@ -70,30 +73,49 @@ inline ggml_tensor* dit_block(ggml_context* ctx, const GgufModel& W, const std::
     auto qknorm = [&](ggml_tensor* a, const std::string& g){ return nn::rms_norm(ctx, a, W.get(g), c.qk_eps); };
     auto toAttn = [&](ggml_tensor* a){ return ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)); };
 
-    // --- differential self-attention with adaLN + partial RoPE ---
+    auto sl = [&](ggml_tensor* t, int i){ return ggml_view_2d(ctx, t, dim, t->ne[1], t->nb[1], (size_t)i*dim*sizeof(float)); };
+    auto single_attn = [&](ggml_tensor* qa, ggml_tensor* ka, ggml_tensor* va){  // q,k,v [hd,seq,nh]
+        ggml_tensor* o = nn::sdpa(ctx, qa, ka, va, nullptr, scale);
+        o = ggml_cont(ctx, ggml_permute(ctx, o, 0, 2, 1, 3));
+        return ggml_reshape_2d(ctx, o, dim, o->ne[2]);
+    };
+
+    // --- self-attention with adaLN + partial RoPE (differential or standard) ---
     ggml_tensor* res = x;
     ggml_tensor* h = modulate(nn::rms_norm(ctx, x, W.get(p+"pre_norm.gamma"), c.norm_eps), sc_a, sh_a);
-    ggml_tensor* qkv = ggml_mul_mat(ctx, W.get(p+"self.qkv.weight"), h);     // [5*dim, S]
-    auto sl = [&](ggml_tensor* t, int i){ return ggml_view_2d(ctx, t, dim, t->ne[1], t->nb[1], (size_t)i*dim*sizeof(float)); };
-    ggml_tensor* q  = heads(sl(qkv,0),S), *k = heads(sl(qkv,1),S), *v = heads(sl(qkv,2),S),
-                *qd = heads(sl(qkv,3),S), *kd = heads(sl(qkv,4),S);
-    q  = qknorm(q,  p+"self.q_norm.gamma"); qd = qknorm(qd, p+"self.q_norm.gamma");
-    k  = qknorm(k,  p+"self.k_norm.gamma"); kd = qknorm(kd, p+"self.k_norm.gamma");
-    q = nn::rope_neox(ctx,q,pos,c.rot,c.rope_base); qd = nn::rope_neox(ctx,qd,pos,c.rot,c.rope_base);
-    k = nn::rope_neox(ctx,k,pos,c.rot,c.rope_base); kd = nn::rope_neox(ctx,kd,pos,c.rot,c.rope_base);
-    ggml_tensor* o = dit_diff_attn(ctx, toAttn(q),toAttn(k),toAttn(v),toAttn(qd),toAttn(kd), dim, scale);
+    ggml_tensor* qkv = ggml_mul_mat(ctx, W.get(p+"self.qkv.weight"), h);     // [3 or 5 *dim, S]
+    ggml_tensor* q = qknorm(heads(sl(qkv,0),S), p+"self.q_norm.gamma");
+    ggml_tensor* k = qknorm(heads(sl(qkv,1),S), p+"self.k_norm.gamma");
+    ggml_tensor* v = heads(sl(qkv,2),S);
+    q = nn::rope_neox(ctx,q,pos,c.rot,c.rope_base); k = nn::rope_neox(ctx,k,pos,c.rot,c.rope_base);
+    ggml_tensor* o;
+    if (c.differential) {
+        ggml_tensor* qd = qknorm(heads(sl(qkv,3),S), p+"self.q_norm.gamma");
+        ggml_tensor* kd = qknorm(heads(sl(qkv,4),S), p+"self.k_norm.gamma");
+        qd = nn::rope_neox(ctx,qd,pos,c.rot,c.rope_base); kd = nn::rope_neox(ctx,kd,pos,c.rot,c.rope_base);
+        o = dit_diff_attn(ctx, toAttn(q),toAttn(k),toAttn(v),toAttn(qd),toAttn(kd), dim, scale);
+    } else {
+        o = single_attn(toAttn(q), toAttn(k), toAttn(v));
+    }
     o = ggml_mul_mat(ctx, W.get(p+"self.out.weight"), o);
     x = ggml_add(ctx, res, gate(o, g_a));
 
-    // --- differential cross-attention (no adaLN, no RoPE), kv from context ---
+    // --- cross-attention (no adaLN, no RoPE), kv from context ---
     ggml_tensor* hc = nn::rms_norm(ctx, x, W.get(p+"cross_norm.gamma"), c.norm_eps);
-    ggml_tensor* qf = ggml_mul_mat(ctx, W.get(p+"cross.q.weight"), hc);      // [2*dim, S]
-    ggml_tensor* kv = ggml_mul_mat(ctx, W.get(p+"cross.kv.weight"), context);// [3*dim, Ctx]
-    ggml_tensor* cq  = heads(sl(qf,0),S),  *cqd = heads(sl(qf,1),S);
-    ggml_tensor* ck  = heads(sl(kv,0),Ctx),*ckd = heads(sl(kv,1),Ctx), *cv = heads(sl(kv,2),Ctx);
-    cq  = qknorm(cq,  p+"cross.q_norm.gamma"); cqd = qknorm(cqd, p+"cross.q_norm.gamma");
-    ck  = qknorm(ck,  p+"cross.k_norm.gamma"); ckd = qknorm(ckd, p+"cross.k_norm.gamma");
-    ggml_tensor* oc = dit_diff_attn(ctx, toAttn(cq),toAttn(ck),toAttn(cv),toAttn(cqd),toAttn(ckd), dim, scale);
+    ggml_tensor* qf = ggml_mul_mat(ctx, W.get(p+"cross.q.weight"), hc);      // [1 or 2 *dim, S]
+    ggml_tensor* kv = ggml_mul_mat(ctx, W.get(p+"cross.kv.weight"), context);// [2 or 3 *dim, Ctx]
+    ggml_tensor* cq = qknorm(heads(sl(qf,0),S), p+"cross.q_norm.gamma");
+    ggml_tensor* ck = qknorm(heads(sl(kv,0),Ctx), p+"cross.k_norm.gamma");
+    ggml_tensor* oc;
+    if (c.differential) {
+        ggml_tensor* cqd = qknorm(heads(sl(qf,1),S),   p+"cross.q_norm.gamma");
+        ggml_tensor* ckd = qknorm(heads(sl(kv,1),Ctx), p+"cross.k_norm.gamma");
+        ggml_tensor* cv  = heads(sl(kv,2),Ctx);
+        oc = dit_diff_attn(ctx, toAttn(cq),toAttn(ck),toAttn(cv),toAttn(cqd),toAttn(ckd), dim, scale);
+    } else {
+        ggml_tensor* cv = heads(sl(kv,1),Ctx);
+        oc = single_attn(toAttn(cq), toAttn(ck), toAttn(cv));
+    }
     oc = ggml_mul_mat(ctx, W.get(p+"cross.out.weight"), oc);
     x = ggml_add(ctx, x, oc);
 

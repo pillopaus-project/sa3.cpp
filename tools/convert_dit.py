@@ -94,6 +94,7 @@ def main():
     w.add_uint32("dit.mem_tokens",cfg["num_memory_tokens"])# 64
     w.add_uint32("dit.rot",       (dim // cfg["num_heads"]) // 2)  # 32 (partial rope)
     w.add_uint32("dit.time_dim",  cfg.get("timestep_features_dim", 256))  # 256
+    w.add_uint32("dit.differential", 1 if cfg.get("attn_kwargs", {}).get("differential", False) else 0)
     w.add_float32("dit.rope_base", 10000.0)
     w.add_float32("dit.norm_eps",  1e-5)   # block RMSNorm
     w.add_float32("dit.qk_eps",    1e-6)   # qk RMSNorm

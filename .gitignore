@@ -21,3 +21,6 @@ checkpoints/
 __pycache__/
 *.pyc
 .venv/
+_smallweights/
+refdata_small/
+cppout_small/
