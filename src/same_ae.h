@@ -52,14 +52,28 @@ struct SameConfig {
 
 // Host-side [M,M] additive attention mask (row-major (q,k)) for a SAME AE:
 // block-diagonal over eff_chunk (chunked, SAME-S) or sliding-window band (SAME-L).
-// 0 where attention is allowed, -inf where masked. Shared by every driver so the
-// SAME-L band and SAME-S block-diag rule live in exactly one place.
+// 0 where attention is allowed, -inf where masked. Used only by the (now legacy) dense path.
 inline std::vector<float> build_attn_mask(const SameConfig& c, int M) {
     std::vector<float> b((size_t)M * M);
     for (int q = 0; q < M; q++) for (int k = 0; k < M; k++)
         b[(size_t)q*M + k] = c.chunk ? ((q/c.eff_chunk == k/c.eff_chunk) ? 0.0f : -INFINITY)
                                      : ((std::abs(q-k) <= c.sliding_window) ? 0.0f : -INFINITY);
     return b;
+}
+
+// Sliding-window bias for SAME-L local attention (nn::attn_sliding): [3b, b, nb] additive
+// (0/-inf), b = sub_chunk, nb = N/b. Encodes the band |gq-gk| <= window AND key-in-range
+// (so edge blocks mask their out-of-sequence pad). gq = i*b+p, gk = (i-1)*b + j.
+inline std::vector<float> build_swa_bias(const SameConfig& c, int64_t N) {
+    const int b = c.sub_chunk, tb = 3*b, w = c.sliding_window;
+    const int nb = (int)(N / b);
+    std::vector<float> bias((size_t)tb * b * nb);
+    for (int i = 0; i < nb; i++) for (int p = 0; p < b; p++) for (int j = 0; j < tb; j++) {
+        const int gq = i*b + p, gk = (i-1)*b + j;
+        const bool ok = std::abs(gq - gk) <= w && gk >= 0 && gk < (int)N;
+        bias[(size_t)i*b*tb + (size_t)p*tb + j] = ok ? 0.0f : -INFINITY;
+    }
+    return bias;
 }
 
 // One SAME TransformerBlock over a packed sequence x:[dim, N]:
@@ -97,11 +111,12 @@ inline ggml_tensor* same_block(ggml_context* ctx, const GgufModel& W, const std:
     auto toAttn = [&](ggml_tensor* a){ return ggml_cont(ctx, ggml_permute(ctx, a, 0, 2, 1, 3)); }; // [dh,nh,N]->[dh,N,nh]
     q=toAttn(q); k=toAttn(k); v=toAttn(v); qd=toAttn(qd); kd=toAttn(kd);
 
-    // differential attention. SAME-S (chunked): block-diagonal local attention (O(N*cc), mask unused).
-    // SAME-L (sliding window): dense masked sdpa for now (band) — local path is step 2.
+    // differential attention, both via sparse local paths (mask param carries the bias):
+    //   SAME-S (chunked): block-diagonal self-attention over eff_chunk blocks (mask unused).
+    //   SAME-L (sliding window): overlapping-block banded attention; `mask` = [3*sub_chunk, sub_chunk, nb] SWA bias.
     ggml_tensor* o = c.chunk
         ? ggml_sub(ctx, nn::attn_blockdiag(ctx,q,k,v,c.eff_chunk,scale), nn::attn_blockdiag(ctx,qd,kd,v,c.eff_chunk,scale))
-        : ggml_sub(ctx, nn::sdpa(ctx,q,k,v,mask,scale), nn::sdpa(ctx,qd,kd,v,mask,scale));         // [dh,N,nh]
+        : ggml_sub(ctx, nn::attn_sliding(ctx,q,k,v,c.sub_chunk,mask,scale), nn::attn_sliding(ctx,qd,kd,v,c.sub_chunk,mask,scale)); // [dh,N,nh]
     o = ggml_cont(ctx, ggml_permute(ctx, o, 0, 2, 1, 3));            // [dh,nh,N]
     o = ggml_reshape_2d(ctx, o, dim, N);
     o = ggml_mul_mat(ctx, W.get(p+"self_attn.to_out.weight"), o);

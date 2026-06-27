@@ -60,6 +60,33 @@ inline ggml_tensor* attn_blockdiag(ggml_context* ctx, ggml_tensor* q, ggml_tenso
     return ggml_reshape_3d(ctx, o, d, N, H);
 }
 
+// Sliding-window (banded) attention via overlapping blocks: q,k,v [d, N, H], N = b*nb.
+// Each block of b tokens attends to its 3-block neighborhood [i-1, i, i+1] (3b keys, edge-padded);
+// `bias` [3b, b, nb] additively encodes the exact band + edge validity (built host-side). With
+// b >= window this is identical to dense band sdpa, but O(N*3b) not O(N^2) — the SAME-L decoder.
+inline ggml_tensor* attn_sliding(ggml_context* ctx, ggml_tensor* q, ggml_tensor* k, ggml_tensor* v,
+                                 int b, ggml_tensor* bias, float scale) {
+    const int64_t d = q->ne[0], N = q->ne[1], H = q->ne[2], nb = N / b;
+    auto blk = [&](ggml_tensor* t){ return ggml_reshape_4d(ctx, t, d, b, nb, H); };   // [d, b, nb, H]
+    auto pad = [&](ggml_tensor* xb){                                                   // zero block each side -> [d,b,nb+2,H]
+        ggml_tensor* z = ggml_scale(ctx, ggml_cont(ctx,
+            ggml_view_4d(ctx, xb, d, b, 1, H, xb->nb[1], xb->nb[2], xb->nb[3], 0)), 0.0f);
+        return ggml_concat(ctx, ggml_concat(ctx, z, xb, 2), z, 2);
+    };
+    auto neigh = [&](ggml_tensor* xp){                                                 // 3 block-slices -> [d, 3b, nb, H]
+        auto sl = [&](int off){ return ggml_cont(ctx, ggml_view_4d(ctx, xp, d, b, nb, H,
+            xp->nb[1], xp->nb[2], xp->nb[3], (size_t)off*xp->nb[2])); };
+        return ggml_concat(ctx, ggml_concat(ctx, sl(0), sl(1), 1), sl(2), 1);
+    };
+    ggml_tensor* Kn = neigh(pad(blk(k)));                              // [d, 3b, nb, H]
+    ggml_tensor* Vn = neigh(pad(blk(v)));
+    ggml_tensor* kq = ggml_mul_mat(ctx, Kn, blk(q));                  // [3b, b, nb, H]
+    kq = ggml_soft_max_ext(ctx, kq, bias, scale, 0.0f);              // fused scale+bias+softmax (bias [3b,b,nb])
+    ggml_tensor* vt = ggml_cont(ctx, ggml_permute(ctx, Vn, 1, 0, 2, 3)); // [3b, d, nb, H]
+    ggml_tensor* o = ggml_mul_mat(ctx, vt, kq);                      // [d, b, nb, H]
+    return ggml_reshape_3d(ctx, o, d, N, H);
+}
+
 // Scaled-dot-product attention with an additive mask.
 // q,k,v: [d, N, H]; mask: [Nk, Nq] (0 / -inf). Returns [d, Nq, H].
 inline ggml_tensor* sdpa(ggml_context* ctx, ggml_tensor* q, ggml_tensor* k, ggml_tensor* v,

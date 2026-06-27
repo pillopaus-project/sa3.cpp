@@ -52,16 +52,11 @@ static std::vector<float> tensor_to_host(const sa3::GgufModel& M, const std::str
     return b;
 }
 
-static void set_same_attn_mask(ggml_tensor* mt, const sa3::SameConfig& sc, int M) {
-    if (!mt->buffer) return;   // mask unused (SAME-S block-diagonal attention needs none)
-    std::vector<float> f32 = sa3::build_attn_mask(sc, M);
-    if (mt->type == GGML_TYPE_F16) {
-        std::vector<ggml_fp16_t> f16(f32.size());
-        ggml_fp32_to_fp16_row(f32.data(), f16.data(), (int64_t)f32.size());
-        ggml_backend_tensor_set(mt, f16.data(), 0, f16.size() * sizeof(ggml_fp16_t));
-    } else {
-        ggml_backend_tensor_set(mt, f32.data(), 0, f32.size() * sizeof(float));
-    }
+// SAME-L sliding-window bias upload; no-op when the mask tensor is unused (SAME-S block-diagonal).
+static void set_swa_bias(ggml_tensor* mt, const sa3::SameConfig& sc, int64_t N) {
+    if (!mt->buffer) return;
+    std::vector<float> bias = sa3::build_swa_bias(sc, N);
+    ggml_backend_tensor_set(mt, bias.data(), 0, bias.size() * sizeof(float));
 }
 
 int main(int argc, char** argv) {
@@ -116,7 +111,6 @@ int main(int argc, char** argv) {
     const sa3::T5GemmaConfig tc = sa3::T5GemmaConfig::from(TE);
     const sa3::DitConfig     dc = sa3::DitConfig::from(DIT);
     const sa3::SameConfig    sc = sa3::SameConfig::from(AE);
-    const ggml_type ae_mask_type = sa3::nn::flash_attn_enabled() ? GGML_TYPE_F16 : GGML_TYPE_F32;
     const int ds = sc.patch_size * sc.output_seg;          // downsampling ratio (4096 samples/frame)
 
     // ---------- LoRA/DoRA adapters: recompute W_eff in weight space (chained in flag order) ----------
@@ -263,12 +257,13 @@ int main(int argc, char** argv) {
         ggml_context* enctx = ggml_init(encp);
         ggml_tensor* a_in   = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, init_L, sc.out_channels / sc.patch_size);
         ggml_tensor* pos_a  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc);
-        ggml_tensor* mask_a = ggml_new_tensor_2d(enctx, ae_mask_type, Nenc, Nenc);
+        ggml_tensor* mask_a = sc.chunk ? ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc, Nenc)
+                                       : ggml_new_tensor_3d(enctx, GGML_TYPE_F32, 3*sc.sub_chunk, sc.sub_chunk, Nenc/sc.sub_chunk);
         ggml_set_input(a_in); ggml_set_input(pos_a); ggml_set_input(mask_a);
         ggml_tensor *pos_a2 = nullptr, *mask_a2 = nullptr;
-        if (sc.chunk) {
+        if (sc.chunk) {                                       // SAME-S shifted half: pos_a2 used, mask_a2 unused
             pos_a2  = ggml_new_tensor_1d(enctx, GGML_TYPE_I32, Nenc2);
-            mask_a2 = ggml_new_tensor_2d(enctx, ae_mask_type, Nenc2, Nenc2);
+            mask_a2 = ggml_new_tensor_2d(enctx, GGML_TYPE_F32, Nenc2, Nenc2);
             ggml_set_input(pos_a2); ggml_set_input(mask_a2);
         }
         ggml_tensor* zt = ggml_cont(enctx, sa3::same_encode(enctx, AE, a_in, sc, T, pos_a, mask_a, pos_a2, mask_a2).z);
@@ -279,9 +274,8 @@ int main(int argc, char** argv) {
         ggml_gallocr_alloc_graph(alloc_enc, gf_enc);
         ggml_backend_tensor_set(a_in, init_audio.data(), 0, init_audio.size()*sizeof(float));
         auto set_pos  = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
-        auto set_mask = [&](ggml_tensor* mt, int M){ set_same_attn_mask(mt, sc, M); };
-        set_pos(pos_a, Nenc); set_mask(mask_a, Nenc);
-        if (sc.chunk) { set_pos(pos_a2, Nenc2); set_mask(mask_a2, Nenc2); }
+        set_pos(pos_a, Nenc); set_swa_bias(mask_a, sc, Nenc);
+        if (sc.chunk) set_pos(pos_a2, Nenc2);                 // mask_a2 unused (block-diagonal)
         ggml_backend_graph_compute(AE.backend, gf_enc);
         ggml_backend_tensor_get(zt, z_init.data(), 0, N*sizeof(float));
         ggml_gallocr_free(alloc_enc); ggml_free(enctx);
@@ -315,6 +309,8 @@ int main(int argc, char** argv) {
         printf("inpaint: regenerating frames [%d,%d) of %d (%.2f-%.2fs), keeping the rest\n",
                f0, f1, T, f0 * (float)ds / 44100.0f, f1 * (float)ds / 44100.0f);
     }
+
+    TE.free();   // T5Gemma done after conditioning — free its VRAM before sampling (8GB card is tight at f32)
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
@@ -373,6 +369,7 @@ int main(int argc, char** argv) {
     profile_log(prof, "dit_get_update", dit_download_update);
     profile_log(prof, "dit_total", wall_time_s() - t_dit_total);
     ggml_gallocr_free(alloc_dit); ggml_free(dctx);
+    DIT.free();   // DiT done — free ~6GB before the SAME decode so the AE is fully VRAM-resident
 
     // ---------- decode -> WAV ----------
     const int Ndec = T * sc.sub_chunk;
@@ -383,12 +380,13 @@ int main(int argc, char** argv) {
     ggml_tensor* z = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, sc.latent, T);
     const int N2 = sc.chunk ? Ndec + 2*sc.shift : 0;       // SAME-S needs a shifted 2nd mask
     ggml_tensor* pos_e = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, Ndec);
-    ggml_tensor* mask_e = ggml_new_tensor_2d(ectx, ae_mask_type, Ndec, Ndec);
+    ggml_tensor* mask_e = sc.chunk ? ggml_new_tensor_2d(ectx, GGML_TYPE_F32, Ndec, Ndec)
+                                   : ggml_new_tensor_3d(ectx, GGML_TYPE_F32, 3*sc.sub_chunk, sc.sub_chunk, Ndec/sc.sub_chunk);
     ggml_set_input(z); ggml_set_input(pos_e); ggml_set_input(mask_e);
     ggml_tensor *pos2_e = nullptr, *mask2_e = nullptr;
-    if (sc.chunk) {
+    if (sc.chunk) {                                          // SAME-S shifted half: pos2_e used, mask2_e unused
         pos2_e  = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, N2);
-        mask2_e = ggml_new_tensor_2d(ectx, ae_mask_type, N2, N2);
+        mask2_e = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, N2, N2);
         ggml_set_input(pos2_e); ggml_set_input(mask2_e);
     }
     ggml_tensor* audio = ggml_cont(ectx, sa3::same_decode(ectx, AE, z, sc, T, pos_e, mask_e, pos2_e, mask2_e).audio);
@@ -403,9 +401,8 @@ int main(int argc, char** argv) {
     tp_dec = wall_time_s();
     ggml_backend_tensor_set(z, host_x.data(), 0, N*sizeof(float));
     auto set_pos = [&](ggml_tensor* p, int n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
-    auto set_mask = [&](ggml_tensor* mt, int M){ set_same_attn_mask(mt, sc, M); };
-    set_pos(pos_e, Ndec); set_mask(mask_e, Ndec);
-    if (sc.chunk) { set_pos(pos2_e, N2); set_mask(mask2_e, N2); }
+    set_pos(pos_e, Ndec); set_swa_bias(mask_e, sc, Ndec);
+    if (sc.chunk) set_pos(pos2_e, N2);                       // mask2_e unused (block-diagonal)
     profile_log(prof, "dec_upload", wall_time_s() - tp_dec);
     tp_dec = wall_time_s();
     ggml_backend_graph_compute(AE.backend, gf_dec);
@@ -422,7 +419,7 @@ int main(int argc, char** argv) {
     printf("wrote %s  (%.2fs, seed %llu)\n", wav_p, (float)n_samp/44100.0f, (unsigned long long)seed);
 
     ggml_gallocr_free(alloc_dec); ggml_free(ectx);
-    TE.free(); DIT.free(); AE.free();
+    AE.free();   // TE and DIT already freed above
     profile_log(prof, "total", wall_time_s() - t_total0);
     return 0;
 }

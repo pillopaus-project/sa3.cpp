@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
     ggml_context* ectx = ggml_init(eip);
     ggml_tensor* z     = ggml_new_tensor_2d(ectx, GGML_TYPE_F32, sc.latent, T);
     ggml_tensor* pos_e = ggml_new_tensor_1d(ectx, GGML_TYPE_I32, Ndec);
-    ggml_tensor* mask_e= ggml_new_tensor_2d(ectx, GGML_TYPE_F32, Ndec, Ndec);
+    ggml_tensor* mask_e= ggml_new_tensor_3d(ectx, GGML_TYPE_F32, 3*sc.sub_chunk, sc.sub_chunk, Ndec/sc.sub_chunk); // SWA bias (SAME-L)
     for (ggml_tensor* t : {z, pos_e, mask_e}) ggml_set_input(t);
     ggml_tensor* audio = ggml_cont(ectx, sa3::same_decode(ectx, AE, z, sc, T, pos_e, mask_e).audio);
     ggml_set_output(audio);
@@ -130,9 +130,7 @@ int main(int argc, char** argv) {
     ggml_backend_tensor_set(z, host_x.data(), 0, N*sizeof(float));   // latent
     std::vector<int32_t> pe(Ndec); for (int i = 0; i < Ndec; i++) pe[i] = i;
     ggml_backend_tensor_set(pos_e, pe.data(), 0, pe.size()*sizeof(int32_t));
-    std::vector<float> me((size_t)Ndec*Ndec);
-    for (int q = 0; q < Ndec; q++) for (int k = 0; k < Ndec; k++)
-        me[(size_t)q*Ndec+k] = (std::abs(q-k) <= sc.sliding_window) ? 0.0f : -INFINITY;
+    std::vector<float> me = sa3::build_swa_bias(sc, Ndec);
     ggml_backend_tensor_set(mask_e, me.data(), 0, me.size()*sizeof(float));
 
     ggml_backend_graph_compute(AE.backend, gf_dec);

@@ -50,10 +50,12 @@ int main(int argc, char** argv) {
     const int64_t N2 = chunked ? N + 2*c.shift : 0;
 
     ggml_tensor* pos  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N);
-    ggml_tensor* mask = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, N);
+    // SAME-L: mask = sliding-window bias [3*sub_chunk, sub_chunk, N/sub_chunk]; SAME-S: block-diagonal needs none.
+    ggml_tensor* mask = chunked ? ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, N)
+                                : ggml_new_tensor_3d(ctx, GGML_TYPE_F32, 3*c.sub_chunk, c.sub_chunk, N/c.sub_chunk);
     ggml_set_input(pos); ggml_set_input(mask);
     ggml_tensor *pos2 = nullptr, *mask2 = nullptr;
-    if (chunked) {
+    if (chunked) {                                            // SAME-S shifted half: pos2 used (RoPE), mask2 unused
         pos2  = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, N2);
         mask2 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N2, N2);
         ggml_set_input(pos2); ggml_set_input(mask2);
@@ -90,13 +92,13 @@ int main(int argc, char** argv) {
     ggml_backend_tensor_set(in, inbuf.data(), 0, inbuf.size()*sizeof(float));
 
     auto set_pos = [&](ggml_tensor* p, int64_t n){ std::vector<int32_t> b(n); for (int i=0;i<n;i++) b[i]=i; ggml_backend_tensor_set(p, b.data(), 0, n*sizeof(int32_t)); };
-    auto set_mask = [&](ggml_tensor* mt, int64_t M){
-        if (!mt->buffer) return;   // mask unused (SAME-S block-diagonal attention needs none)
-        std::vector<float> mb = sa3::build_attn_mask(c, (int)M);
+    auto set_swa = [&](ggml_tensor* mt){       // SAME-L sliding-window bias; no-op when unused (SAME-S)
+        if (!mt->buffer) return;
+        std::vector<float> mb = sa3::build_swa_bias(c, N);
         ggml_backend_tensor_set(mt, mb.data(), 0, mb.size()*sizeof(float));
     };
-    set_pos(pos, N); set_mask(mask, N);
-    if (chunked) { set_pos(pos2, N2); set_mask(mask2, N2); }
+    set_pos(pos, N); set_swa(mask);
+    if (chunked) set_pos(pos2, N2);            // mask2 unused (block-diagonal)
 
     ggml_backend_graph_compute(W.backend, gf);
 
