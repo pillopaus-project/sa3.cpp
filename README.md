@@ -8,7 +8,7 @@ what's next:
 
 - [x] same-s / stable-audio-3-small-music and sfx
 - [x] audio2audio
-- [ ] inpainting
+- [x] inpainting
 - [ ] loras
 - [ ] support cuda/metal/vulkan
 - [ ] benchmark generation times and stuff
