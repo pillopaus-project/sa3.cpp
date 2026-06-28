@@ -14,9 +14,10 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # Backend toggles (forwarded to the vanilla ggml submodule).
 # CUDA is our first-class target; others are end-stage goals.
-option(SA3_CUDA   "Build the GGML CUDA backend"   OFF)
-option(SA3_VULKAN "Build the GGML Vulkan backend" OFF)
-option(SA3_METAL  "Build the GGML Metal backend"  OFF)
+option(SA3_CUDA   "Build the GGML CUDA backend"        OFF)
+option(SA3_VULKAN "Build the GGML Vulkan backend"      OFF)
+option(SA3_METAL  "Build the GGML Metal backend"       OFF)
+option(SA3_HIP    "Build the GGML HIP/ROCm backend"    OFF)
 
 if(SA3_CUDA)
     set(GGML_CUDA ON CACHE BOOL "" FORCE)
@@ -26,6 +27,9 @@ if(SA3_VULKAN)
 endif()
 if(SA3_METAL)
     set(GGML_METAL ON CACHE BOOL "" FORCE)
+endif()
+if(SA3_HIP)
+    set(GGML_HIP ON CACHE BOOL "" FORCE)
 endif()
 
 # Vanilla GGML (no custom ops needed — the whole SA3 stack is attention/linear/norm/conv1d).
