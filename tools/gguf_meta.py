@@ -31,14 +31,16 @@ def size_label(n_params):
     return s.replace(".0B", "B")
 
 
-def add_general(w, basename, name, finetune=None, n_params=None):
+def add_general(w, basename, name, finetune=None, n_params=None, license_id=LICENSE):
     """Stamp the convention's catalog metadata. basename e.g. 'stable-audio-3-medium-dit';
     finetune is the variant tag; pass n_params on model-like components (DiT, encoder) to
-    emit size_label (omit for the autoencoder + tokenizer, which are convention-exempt)."""
+    emit size_label (omit for the autoencoder + tokenizer, which are convention-exempt).
+    license_id defaults to the SA3 community license; the shared T5Gemma encoder + tokenizer
+    pass 'gemma' since they're Google's under the Gemma Terms of Use."""
     w.add_name(name)
     w.add_string("general.basename", basename)
     w.add_string("general.version", VERSION)
-    w.add_string("general.license", LICENSE)
+    w.add_string("general.license", license_id)
     if finetune:
         w.add_string("general.finetune", finetune)
     if n_params is not None:

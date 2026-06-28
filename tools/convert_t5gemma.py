@@ -116,7 +116,8 @@ def main():
             n_written += 1; nparams += t.size
 
     gguf_meta.add_general(w, basename="t5gemma-b-b-ul2-encoder",
-                          name="t5gemma-b-b-ul2 encoder", n_params=nparams)   # shared: no finetune
+                          name="t5gemma-b-b-ul2 encoder", n_params=nparams,
+                          license_id="gemma")   # shared Google encoder, no finetune
     w.write_header_to_file(); w.write_kv_data_to_file(); w.write_tensors_to_file(); w.close()
     print(f"wrote {out}  ({n_written} tensors)  dim={dim} layers={cfg['num_hidden_layers']} "
           f"heads={cfg['num_attention_heads']}x{cfg['head_dim']} softcap={cfg['attn_logit_softcapping']}")

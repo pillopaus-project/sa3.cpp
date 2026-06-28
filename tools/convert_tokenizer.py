@@ -11,6 +11,7 @@ Usage:
 import argparse, json, sys
 from pathlib import Path
 from gguf import GGUFWriter
+import gguf_meta
 
 
 def main():
@@ -37,7 +38,9 @@ def main():
 
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     w = GGUFWriter(str(out), arch="sa3-tokenizer")
-    w.add_name("t5gemma-b-b-ul2 tokenizer (Gemma BPE)")
+    gguf_meta.add_general(w, basename="t5gemma-b-b-ul2",
+                          name="t5gemma-b-b-ul2 tokenizer (Gemma BPE)",
+                          license_id="gemma")   # vocab: shared Google tokenizer, size-exempt
     w.add_array("tok.tokens", tokens)
     w.add_array("tok.merges", merges)
     w.add_uint32("tok.bos_id", vocab.get("<bos>", 2))

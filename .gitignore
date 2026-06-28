@@ -27,3 +27,4 @@ __pycache__/
 *.pyc
 .venv/
 _smallweights/
+_sfxweights/
