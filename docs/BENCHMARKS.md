@@ -20,6 +20,10 @@ SAME-L decoder compute, `dit` is the 8-step sampler.
   `frames * 17` tokens, but (matching the pytorch impl) each token only sees a ~35-wide
   window. computed as overlapping blocks, linear in length, instead of dense n²
   (quadratic). this is what makes long generations possible at all.
+- **lora/dora apply on the gpu** — adapters are dora (weight-decomposed), so each is a
+  per-weight recompute `W_eff = magnitude * (W + B@A) / ||·||`, not a static merge (keeps
+  runtime strength + multi-adapter blending). that recompute used to run in host loops
+  (~14s for the medium's 228 weights); now it's a ggml graph done in-place on the gpu.
 
 ## optimization matrix (~12s output, 128 frames)
 
@@ -61,3 +65,17 @@ it thrashes again. freeing the dit first gives the decode buffer space and it dr
 and the dense decoder isn't even on the table here: at 120s its attention score tensor
 would be ~46 gb *per layer* (`n² × 24 heads × 4b`). the sliding window keeps it bounded —
 vram held at ~6gb through the entire 120s decode.
+
+## lora / dora apply (~12s output, f16)
+
+| run | total | apply overhead |
+|---|---|---|
+| no lora | 3.50 s | — |
+| + kev | 3.63 s | +0.13 s |
+| + kev + keygen | 3.91 s | +0.41 s |
+
+with the apply on the gpu and written in-place (no second copy of the weights), a lora
+generation is basically a base generation plus ~0.1s per adapter. the in-place part matters:
+a separate copy of the dora'd dit (~2.9gb) would push vram back over 8gb and thrash. on the
+host loops this same apply was ~14s.
+
