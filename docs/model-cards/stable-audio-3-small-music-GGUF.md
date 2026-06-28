@@ -1,11 +1,10 @@
-<!-- DRAFT v1 — review with Stability (Zach) before publishing: confirm license tag, gating
-     fields, and whether redistributing the GGUFs needs the same gate as the source repo. -->
+<!-- v1 draft model card — may revise after Stability review. -->
 ---
 language:
 - en
 license: other
 license_name: stable-audio-community
-license_link: LICENSE
+license_link: https://stability.ai/license
 pipeline_tag: text-to-audio
 base_model: stabilityai/stable-audio-3-small-music
 tags:
@@ -14,23 +13,6 @@ tags:
 - diffusion
 - gguf
 - sa3.cpp
-extra_gated_prompt: >-
-  By clicking "Agree", you agree to the Stability AI Community License and acknowledge
-  Stability AI's Privacy Policy. This model also includes the T5Gemma text encoder
-  redistributed under the Gemma Terms of Use; by proceeding you agree to those terms as well.
-extra_gated_fields:
-  Name: text
-  Email: text
-  Country: country
-  Organization or Affiliation: text
-  What do you intend to use the model for?:
-    type: select
-    options:
-      - Research
-      - Personal use
-      - Creative Professional
-      - Startup
-      - Enterprise
 ---
 
 # Stable Audio 3 Small-Music — GGUF (for sa3.cpp)
@@ -71,9 +53,15 @@ sa3-generate --tok models/t5gemma-b-b-ul2-v1.0-vocab.gguf \
 
 ## License
 
-Released under the **Stability AI Community License** (see `LICENSE`). Original weights:
-[stabilityai/stable-audio-3-small-music](https://huggingface.co/stabilityai/stable-audio-3-small-music).
-Includes the T5Gemma text encoder under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
+These are format conversions of [stabilityai/stable-audio-3-small-music](https://huggingface.co/stabilityai/stable-audio-3-small-music),
+whose weights Stability AI releases under the [Stability AI Community License](https://stability.ai/license):
+free for organizations under $1M annual revenue, with commercial use, fine-tuning, and derivative works
+permitted within that threshold (above it, contact Stability AI for an Enterprise License). Outputs are yours.
+That license carries over to these converted weights.
+
+The upstream [stable-audio-3 source code](https://github.com/Stability-AI/stable-audio-3) is released
+separately under MIT. Pair these with the shared T5Gemma text encoder, which is Google's under the
+[Gemma Terms of Use](https://ai.google.dev/gemma/terms).
 
 ## Relationship to the original
 

@@ -1,5 +1,4 @@
-<!-- DRAFT v1 — review with Stability (Zach) before publishing. This is the shared text
-     encoder used by all three SA3 variants; it is Google's T5Gemma under the Gemma Terms. -->
+<!-- v1 draft model card — may revise after Stability review. -->
 ---
 language:
 - en
@@ -11,14 +10,6 @@ tags:
 - text-encoder
 - gguf
 - sa3.cpp
-extra_gated_prompt: >-
-  To access this model you must agree to the Gemma Terms of Use at
-  https://ai.google.dev/gemma/terms, including the use restrictions in Section 3.2.
-extra_gated_fields:
-  Name: text
-  Email: text
-  Country: country
-  Organization or Affiliation: text
 ---
 
 # T5Gemma-b-b-ul2 Encoder + Tokenizer — GGUF (for sa3.cpp)
@@ -46,8 +37,9 @@ Pair these with any SA3 variant repo's DiT + SAME + conditioner:
 
 ## License
 
-Released under the **Gemma Terms of Use** (see `license_link`). Original weights:
-[google/t5gemma-b-b-ul2](https://huggingface.co/google/t5gemma-b-b-ul2).
+This is a format conversion of [google/t5gemma-b-b-ul2](https://huggingface.co/google/t5gemma-b-b-ul2),
+released under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) (including the use restrictions
+in Section 3.2). Those terms carry over to this converted encoder + tokenizer.
 
 ## Relationship to the original
 
