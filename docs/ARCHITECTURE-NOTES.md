@@ -140,10 +140,14 @@ All funnel through one `sample_diffusion`:
 PyTorch path uses `LoRAParametrization` with per-LoRA **sigma intervals** and **layer filters**
 (see `dit.py` forward: `enable_lora`/`filter_lora_layers` gated on `sigma[0]`).
 
-Porting strategy (matches acestep `src/adapter-merge.h`): **static merge at load** —
-parse the LoRA safetensors, for each `lora_A`/`lora_B` pair add `alpha/rank * scale * (B @ A)` into
-the base weight in F32, then requantize. Inference then runs at full speed with zero adapter overhead.
-Downside: loses sigma-interval / per-step toggling. Acceptable for v1; dynamic LoRA is a later option.
+Porting strategy (IMPLEMENTED, src/lora.h — and NOT the static merge once planned here): the real
+adapters are **DoRA** (`dora-rows`), whose forward `W_eff = magnitude·(W + (alpha/rank)·strength·B@A)/‖V‖_row`
+is **non-linear in strength** and **non-additive across adapters**, so a static merge can't represent
+adjustable strength or multi-adapter blending. Instead we do a **runtime weight-space recompute** of
+`W_eff` per targeted weight (chaining adapters in order), as an in-place ggml graph that runs on the GPU
+(~0.13s/adapter). All families (lora/dora/bora + -xs) are supported; converters take `.ckpt → safetensors
+→ gguf`. dora-rows is A/B'd against trained adapters at cossim 1.0. (sigma-interval gating is not ported;
+inference applies adapters once at full strength setting.)
 
 ---
 
