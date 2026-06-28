@@ -4,6 +4,16 @@
 ping-pong variant), supporting text2music, audio2audio, and inpainting/continuation, with the ability
 to load PyTorch-compatible LoRA adapters. Model: acestep.cpp.
 
+> **STATUS (2026-06-27): Phases 0–6 complete + CUDA/f16 (Phase 7a).** text2music, audio2audio,
+> inpaint/continuation, BOTH sizes (medium SAME-L + small-music SAME-S), and lora/dora/bora(+xs)
+> adapters are all validated vs PyTorch at cossim ~1.0. Runs on CPU and CUDA; f16 quantization done;
+> medium generation ~3.5s on an 8GB 5070 with the sliding-window decoder scaling linearly to multi-minute
+> output. Benchmarks: BENCHMARKS.md. **NEXT: Vulkan backend, then Metal.** (The backend is selected via
+> ggml's device registry, so a Vulkan build should largely "just work" — main risk is ggml-vulkan op
+> coverage.) NOTE: Phase 6 below ("static merge") is **superseded** — the real adapters are **DoRA**
+> (non-linear in strength, non-additive across adapters), applied at runtime in weight space via an
+> in-place ggml graph (src/lora.h), NOT statically merged. The richer state lives in the goal memory.
+
 Guiding principle: **validate every component against the PyTorch reference (cosine similarity per
 tensor) before moving on.** acestep does exactly this in its `tests/`; we copy that discipline. Build
 inward-out along the *output* path so each phase produces something audible.
@@ -47,14 +57,18 @@ inward-out along the *output* path so each phase produces something audible.
   start/end seconds (multi-region); `input_concat_cond` packing (masked latents + mask).
 - **Exit:** audio2audio and inpaint renders match PyTorch behavior on reference clips.
 
-## Phase 6 — LoRA adapter loading
-- Static merge at load (`alpha/rank * scale * B@A` → base weight, requantize), parsing the same
-  safetensors a PyTorch/ComfyUI LoRA ships. (Dynamic/interval LoRA = stretch goal.)
-- **Exit:** a known LoRA changes output the same way it does in PyTorch.
+## Phase 6 — LoRA adapter loading  ✅ (DoRA, runtime weight-space — NOT static merge)
+- Adapters are **DoRA** (`dora-rows`), not plain LoRA. `W_eff = magnitude·(W + (alpha/rank)·strength·B@A)/‖·‖_row`
+  is non-linear in strength and non-additive across adapters, so static merge is out. Implemented as a
+  per-weight recompute (runtime strength + multi-adapter chaining) via an in-place ggml graph that runs on
+  the GPU (~0.13s/adapter). Converters: `.ckpt → safetensors → gguf`. All 8 families (lora/dora/bora + -xs)
+  supported; dora-rows A/B'd against trained kev/keygen at cossim 1.0, the rest formula-validated.
+- **Exit:** ✅ a known DoRA changes output the same way it does in PyTorch (incl. adjustable strength).
 
 ## Phase 7 — Productionize
-- Quantization (Q8/Q6/Q4) + quality table; multi-backend builds (CUDA/Vulkan/Metal/CPU);
-  optional CLI/HTTP server à la acestep; README + examples.
+- ✅ f16 quantization (`tools/quantize_gguf.py`); ✅ CUDA backend; ✅ benchmarks (BENCHMARKS.md).
+- **NEXT:** Vulkan backend, then Metal. (Optional later: integer quant Q8/Q6/Q4 + quality table;
+  CLI/HTTP server; broader examples.)
 
 ---
 
