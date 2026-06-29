@@ -19,7 +19,7 @@ tags:
 
 GGUF conversions of [stabilityai/stable-audio-3-small-music](https://huggingface.co/stabilityai/stable-audio-3-small-music)
 for [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp) — a portable C++/GGML port of
-Stable Audio 3, no PyTorch in the loop. Runs on CPU, CUDA, or Vulkan. The small-music model is a
+Stable Audio 3, no PyTorch in the loop. Runs on CPU, CUDA, Vulkan, or Metal (Apple Silicon). The small-music model is a
 lighter, faster music generator (SAME-S autoencoder, 0.5B DiT). Validated against the PyTorch
 reference at cosine similarity ~1.0.
 

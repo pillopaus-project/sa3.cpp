@@ -1,7 +1,7 @@
 # stable-audio-3 in c++
 
 a portable c++/ggml port of stable audio 3 — prompt string → music, no pytorch in the loop.
-runs on cpu, cuda, or vulkan; weights in f32 or f16. every component is validated against the
+runs on cpu, cuda, vulkan, or metal; weights in f32 or f16. every component is validated against the
 pytorch reference at cosine similarity ~1.0.
 
 ## quickstart

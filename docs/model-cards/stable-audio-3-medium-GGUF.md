@@ -20,7 +20,7 @@ tags:
 
 GGUF conversions of [stabilityai/stable-audio-3-medium](https://huggingface.co/stabilityai/stable-audio-3-medium)
 for [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp) — a portable C++/GGML port of
-Stable Audio 3, no PyTorch in the loop. Runs on CPU, CUDA, or Vulkan. Every component is validated
+Stable Audio 3, no PyTorch in the loop. Runs on CPU, CUDA, Vulkan, or Metal (Apple Silicon). Every component is validated
 against the PyTorch reference at cosine similarity ~1.0.
 
 ## Files
