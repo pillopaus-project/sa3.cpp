@@ -51,9 +51,9 @@ what's next:
 - [x] metal backend builds + smoke-tests on Apple M4
 - [ ] hip/rocm for amd
 
-> note: still want to do more testing to confirm the adapters are working just like the pytorch version
-> (dora-rows is validated end-to-end at cossim 1.0; the other adapter types are formula-validated but
-> not yet a/b'd against a trained checkpoint — a bora training run is in progress for that)
+> note: **dora-rows and bora are both validated end-to-end against trained checkpoints at cossim 1.0**
+> (kev/keygen for dora-rows; a trained koan bora adapter for bora). dora-cols and the -xs variants are
+> formula-validated only (no trained checkpoint to a/b yet), but share the same apply path.
 
 credits:
 
