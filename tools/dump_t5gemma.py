@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dump a T5Gemma-encoder reference (input_ids + last_hidden_state) for the GGML port.
 
-Run with the SA3 venv (has transformers with T5Gemma):
-  .../services/sa3/env/Scripts/python.exe tools/dump_t5gemma.py \
+Run with a PyTorch env that has transformers (T5Gemma):
+  python tools/dump_t5gemma.py \
       --model <.../t5gemma-b-b-ul2> --out refdata --prompt "..."
 
 f32 on CPU, eager attention (so logit soft-capping is actually applied).

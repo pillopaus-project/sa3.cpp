@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dump a DiT reference (inputs + velocity) for the GGML port.
 
-Run with the SA3 venv. Builds the DiffusionTransformer from config, loads the
+Run with a PyTorch env (with stable_audio_3). Builds the DiffusionTransformer from config, loads the
 medium `model.model.*` weights, and runs one forward at cfg_scale=1.0 (ARC).
 Conditioning is random (the DiT just consumes it as tensors); this isolates the
 DiT graph from the conditioning assembly + tokenizer.

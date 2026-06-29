@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dump PyTorch SAME-L decoder reference activations for validating the GGML port.
 
-Run with the gary4local SA3 venv (has torch + stable_audio_3):
-  .../services/sa3/env/Scripts/python.exe tools/dump_refs.py \
+Run with a PyTorch env that has stable_audio_3:
+  python tools/dump_refs.py \
       --src <model.safetensors> --config <model_config.json> --out refdata --frames 8
 
 Builds just the autoencoder (no DiT), disables the two inference noises

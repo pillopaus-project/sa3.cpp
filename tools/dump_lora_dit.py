@@ -6,7 +6,7 @@ adapter via the real `load_and_apply_loras` (default strength 1.0), then runs on
 forward on random inputs (same layout as dump_dit.py). Conditioner LoRA is inert here
 because cross/global are fed directly as random tensors.
 
-Run with the SA3 venv:
+Run with a PyTorch env (with stable_audio_3):
   .../env/Scripts/python.exe tools/dump_lora_dit.py --config <cfg> --src <model.safetensors> \
       --hf_home <...> --lora loras/kev.ckpt --out refdata_lora --frames 32 --t 0.5 --seed 0
 """

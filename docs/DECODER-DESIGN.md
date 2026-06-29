@@ -1,8 +1,10 @@
 # SAME-L decoder — implementation spec
 
-Full forward trace of `pretransform.decode(z)` for `stable-audio-3-medium`, read from the PyTorch
-source (`refs/stable-audio-3/stable_audio_3/models/{autoencoders,transformer,bottleneck,pretransforms}.py`).
-This is what the GGML decoder must reproduce. Latent `z`: `(B, 256, T)` at ≈10.77 Hz → audio `(B, 2, T·4096)` @ 44.1 kHz.
+Full forward trace of `pretransform.decode(z)` for `stable-audio-3-medium`, read from the upstream
+PyTorch source ([Stability-AI/stable-audio-3](https://github.com/Stability-AI/stable-audio-3),
+`stable_audio_3/models/{autoencoders,transformer,bottleneck,pretransforms}.py` — clone it separately if
+you want to follow along). This is what the GGML decoder must reproduce. Latent `z`: `(B, 256, T)` at
+≈10.77 Hz → audio `(B, 2, T·4096)` @ 44.1 kHz.
 
 ## Top-level pipeline (`AudioAutoencoder.decode`)
 1. **SoftNorm decode** (`bottleneck.py`): `z = z * running_std` (a single scalar). `scaling_factor`/`bias`

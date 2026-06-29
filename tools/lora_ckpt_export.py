@@ -2,11 +2,11 @@
 """Export a LoRA/DoRA .ckpt (torch pickle) to a flat safetensors + json config.
 
 The gguf converter (tools/convert_lora.py) runs in the .venv which has no torch,
-so this stage (run with the SA3 venv) just unpickles the checkpoint and re-saves the
+so this stage (run with a PyTorch env that has torch) just unpickles the checkpoint and re-saves the
 raw adapter tensors + the lora_config as torch-free formats.
 
-Usage (SA3 venv):
-  .../services/sa3/env/Scripts/python.exe tools/lora_ckpt_export.py \
+Usage (PyTorch env):
+  python tools/lora_ckpt_export.py \
       --ckpt loras/kev.ckpt --out loras/kev
 """
 import argparse, json, sys

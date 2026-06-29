@@ -6,10 +6,10 @@ real conditioning for a prompt+duration, runs a controlled manual ping-pong loop
 (no padding mask, to match the GGML DiT) with pre-generated noise + schedule, and
 decodes to a WAV. Dumps everything GGML needs to replay the exact same generation.
 
-Run with the SA3 venv:
-  .../services/sa3/env/Scripts/python.exe tools/dump_text2music.py \
+Run with a PyTorch env that has stable_audio_3 installed:
+  python tools/dump_text2music.py \
       --config <model_config.json> --src <model.safetensors> \
-      --hf_home <...Gary4LocalTest/hf-download-hotfix> --out refdata \
+      --hf_home <HF cache dir holding the t5gemma-b-b-ul2 encoder> --out refdata \
       --prompt "..." --frames 64 --steps 8 --seed 0
 """
 import argparse, json, os, sys

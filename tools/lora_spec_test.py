@@ -3,7 +3,7 @@
 LoRAParametrization, on synthetic random weights. Pins the exact math the C++
 apply pass (src/lora.h) must reproduce, since we have no trained BoRA/-xs ckpt.
 
-Run with the SA3 venv:
+Run with a PyTorch env (with stable_audio_3):
   .../env/Scripts/python.exe tools/lora_spec_test.py
 """
 import sys
