@@ -40,6 +40,8 @@ the shared **encoder + tokenizer** from
 
 ## Usage
 
+For use with [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp):
+
 ```bash
 python tools/download_models.py --variant small-sfx --encoding f16
 

@@ -41,6 +41,8 @@ validation. The conditioner + encoder + tokenizer stay F32 (small / quality-crit
 
 ## Usage
 
+For use with [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp):
+
 ```bash
 # pip install huggingface_hub
 python tools/download_models.py --variant medium --encoding f16   # fetches this set + the shared encoder
