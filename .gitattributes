@@ -1,0 +1,6 @@
+# Keep shell scripts LF so they run on macOS/Linux even when edited on Windows.
+*.sh   text eol=lf
+# Windows batch stays CRLF.
+*.cmd  text eol=crlf
+# Python is LF everywhere.
+*.py   text eol=lf

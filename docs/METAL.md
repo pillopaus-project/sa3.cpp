@@ -24,8 +24,17 @@ glslc). if the build can't find the Metal framework, confirm the Xcode CLT are i
 
 ## 2. get a model set
 
-once the HF repos are up: `python tools/download_models.py --variant medium --encoding f16`.
-(until then, convert locally per [DISTRIBUTION.md](DISTRIBUTION.md) if you have the source weights.)
+the GGUF repos are live under the `thepatch` org. **they're private for now** (until the Stability
+review), so authenticate with a token that can read them, then download:
+
+```bash
+pip install huggingface_hub
+hf auth login                                              # paste a token with read access to thepatch
+python tools/download_models.py --variant medium --encoding f16
+```
+
+this pulls the medium f16 set (~5.7 GB) + the shared encoder/tokenizer into `models/`. once the repos
+are public the `hf auth login` step is unnecessary. (the binaries land in `build-metal/bin/`.)
 
 ## 3. device + memory notes
 
