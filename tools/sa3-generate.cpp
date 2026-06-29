@@ -14,8 +14,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -66,6 +68,37 @@ static void set_swa_bias(ggml_tensor* mt, const sa3::SameConfig& sc, int64_t N) 
     }
 }
 
+// Load KEY=VALUE lines from ./.env (or $SA3_ENV_FILE) into the environment without overriding
+// vars already set — a real env var always wins. Lets a project dir / downstream app configure
+// SA3_* (models + adapters dirs, device, flash) once instead of per-invocation. Lines may start
+// with `export `, use # comments, and quote values.
+static void load_dotenv() {
+    const char* ef = getenv("SA3_ENV_FILE");
+    std::ifstream f(ef && *ef ? ef : ".env");
+    if (!f) return;
+    auto trim = [](std::string s) {
+        size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
+        return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+    };
+    std::string line;
+    while (std::getline(f, line)) {
+        std::string l = trim(line);
+        if (l.empty() || l[0] == '#') continue;
+        if (l.rfind("export ", 0) == 0) l = trim(l.substr(7));
+        size_t eq = l.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = trim(l.substr(0, eq)), v = trim(l.substr(eq + 1));
+        if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') && v.back() == v.front())
+            v = v.substr(1, v.size() - 2);
+        if (k.empty() || getenv(k.c_str())) continue;   // already set in the real environment -> it wins
+#ifdef _WIN32
+        _putenv_s(k.c_str(), v.c_str());
+#else
+        setenv(k.c_str(), v.c_str(), 1);
+#endif
+    }
+}
+
 // Find the one file in `dir` whose name starts with `prefix` and ends with `suffix`.
 // "" if none; exits if ambiguous. Lets --model / --lora resolve gguf paths by the naming
 // convention, so the CLI doesn't need five explicit --tok/--t5/--cond/--dit/--same paths.
@@ -90,13 +123,17 @@ static std::string resolve_one(const std::string& dir, const std::string& prefix
 }
 
 int main(int argc, char** argv) {
+    load_dotenv();   // ./.env -> SA3_* defaults (real env wins); must precede every getenv below
     const bool prof = profile_enabled();
     const double t_total0 = wall_time_s();
     const char* tok_p = nullptr; const char* t5_p = nullptr; const char* dit_p = nullptr; const char* same_p = nullptr;
     const char* cond_p = nullptr;            // per-variant conditioner sidecar gguf (optional; falls back to --t5 if bundled)
     const char* model_variant = nullptr;     // --model: resolve the 5 base ggufs by naming convention
     const char* encoding = "f16";            // --encoding f16|f32 (which DiT/SAME precision --model picks)
-    const char* models_dir = "models";       // --models-dir: where the ggufs + lora-*.gguf live
+    const char* env_md = getenv("SA3_MODELS_DIR");
+    const char* models_dir = (env_md && *env_md) ? env_md : "models";  // --models-dir / SA3_MODELS_DIR
+    const char* env_ad = getenv("SA3_ADAPTERS_DIR");
+    const char* adapters_dir = (env_ad && *env_ad) ? env_ad : nullptr; // --adapters-dir / SA3_ADAPTERS_DIR (else = models_dir)
     std::string prompt = "Upbeat funk groove with slap bass, bright horns, tight drums";
     const char* wav_p = "song.wav";
     const char* init_p = nullptr;            // audio2audio / inpaint: source WAV (encoded to z_init)
@@ -110,6 +147,7 @@ int main(int argc, char** argv) {
         if      (!strcmp(argv[i], "--model")  && i+1 < argc) model_variant = argv[++i];
         else if (!strcmp(argv[i], "--encoding") && i+1 < argc) encoding = argv[++i];
         else if (!strcmp(argv[i], "--models-dir") && i+1 < argc) models_dir = argv[++i];
+        else if (!strcmp(argv[i], "--adapters-dir") && i+1 < argc) adapters_dir = argv[++i];
         else if (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
         else if (!strcmp(argv[i], "--t5")     && i+1 < argc) t5_p = argv[++i];
         else if (!strcmp(argv[i], "--dit")    && i+1 < argc) dit_p = argv[++i];
@@ -156,13 +194,15 @@ int main(int argc, char** argv) {
         fill(dit_p,  "stable-audio-3-" + mv + "-dit-",  "-" + ENC + ".gguf");
         fill(same_p, "stable-audio-3-" + mv + "-same-", "-" + ENC + ".gguf");
     }
-    // --lora <name|path>: a bare name resolves to <models-dir>/lora-<name>-*.gguf; a real path is used as-is.
+    // --lora <name|path>: a bare name resolves to <adapters-dir>/lora-<name>-*.gguf (adapters can live
+    // anywhere via SA3_ADAPTERS_DIR/--adapters-dir; defaults to the models dir). A real path is used as-is.
+    const char* adir = adapters_dir ? adapters_dir : models_dir;
     for (auto& spec : lora_specs) {
         if (std::filesystem::exists(spec.first)) continue;
-        std::string p = resolve_one(models_dir, "lora-" + spec.first + "-", ".gguf");
+        std::string p = resolve_one(adir, "lora-" + spec.first + "-", ".gguf");
         if (p.empty()) {
             fprintf(stderr, "[sa3] --lora %s: not a file and no lora-%s-*.gguf in %s/\n",
-                    spec.first.c_str(), spec.first.c_str(), models_dir);
+                    spec.first.c_str(), spec.first.c_str(), adir);
             exit(1);
         }
         spec.first = std::move(p);

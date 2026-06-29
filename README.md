@@ -26,6 +26,16 @@ python3 tools/download_models.py --variant medium --encoding f16
 (`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still
 work and override it per-slot. `--encoding f32` and `--models-dir DIR` adjust what it resolves.)
 
+**configuration.** the model/adapter dirs (and the backend knobs) read from env vars, so a downstream
+app sets them in the process it spawns and never touches the CLI. drop a `.env` in the working dir to
+set them locally — see [`.env.example`](.env.example). precedence is **flag > env var > `.env` > default**:
+
+| | env var | flag | default |
+|---|---|---|---|
+| base ggufs | `SA3_MODELS_DIR` | `--models-dir` | `models/` |
+| adapters (`--lora <name>`) | `SA3_ADAPTERS_DIR` | `--adapters-dir` | = models dir |
+| device / flash | `SA3_DEVICE` `SA3_GPU` `SA3_FLASH_ATTN` | — | auto |
+
 build needs cmake + a c++17 compiler (Visual Studio 2022 on windows). cuda needs the CUDA
 Toolkit; vulkan needs the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home); metal is macOS-only.
 backend + packaging details: [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) ·

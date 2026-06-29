@@ -32,3 +32,6 @@ __pycache__/
 .venv/
 _smallweights/
 _sfxweights/
+
+# local config (use .env.example as a template)
+.env
