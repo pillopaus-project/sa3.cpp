@@ -28,7 +28,7 @@ python3 tools/download_models.py --variant medium --encoding f16
 build needs cmake + a c++17 compiler (Visual Studio 2022 on windows). cuda needs the CUDA
 Toolkit; vulkan needs the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home); metal is macOS-only.
 backend + packaging details: [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) ·
-[docs/VULKAN.md](docs/VULKAN.md) · [docs/METAL.md](docs/METAL.md).
+[docs/VULKAN.md](docs/VULKAN.md) · [docs/METAL.md](docs/METAL.md) · [docs/HIP.md](docs/HIP.md).
 
 what works:
 
@@ -49,7 +49,7 @@ what's next:
 - [x] benchmark generation times and stuff ([docs/BENCHMARKS.md](docs/BENCHMARKS.md))
 - [x] vulkan backend ([docs/VULKAN.md](docs/VULKAN.md))
 - [x] metal backend builds + smoke-tests on Apple M4
-- [ ] hip/rocm for amd
+- [ ] hip/rocm for amd — scaffolded (`./build.sh hip`) but **untested, [ROCm tester wanted](docs/HIP.md)** 🙏
 
 > note: **dora-rows and bora are both validated end-to-end against trained checkpoints at cossim 1.0**
 > (kev/keygen for dora-rows; a trained koan bora adapter for bora). dora-cols and the -xs variants are
