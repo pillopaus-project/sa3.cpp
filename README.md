@@ -16,14 +16,15 @@ cd sa3.cpp
 # 2. download a model set into ./models  (needs: python3 -m pip install huggingface_hub)
 python3 tools/download_models.py --variant medium --encoding f16
 
-# 3. generate
-./build-cuda/bin/sa3-generate --tok models/t5gemma-b-b-ul2-v1.0-vocab.gguf \
-    --t5 models/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf \
-    --cond models/stable-audio-3-medium-conditioner-v1.0-F32.gguf \
-    --dit models/stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf \
-    --same models/stable-audio-3-medium-same-l-v1.0-F16.gguf \
-    --prompt "upbeat funk groove with slap bass" --frames 128 --steps 8 --out song.wav
+# 3. generate — --model resolves the gguf set in ./models by name
+./build-cuda/bin/sa3-generate --model medium --prompt "upbeat funk groove with slap bass" --out song.wav
+
+# adapters resolve the same way: --lora <name> finds models/lora-<name>-*.gguf
+./build-cuda/bin/sa3-generate --model medium --lora kev --lora keygen --prompt "breakcore 140bpm" --out song.wav
 ```
+
+(`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still
+work and override it per-slot. `--encoding f32` and `--models-dir DIR` adjust what it resolves.)
 
 build needs cmake + a c++17 compiler (Visual Studio 2022 on windows). cuda needs the CUDA
 Toolkit; vulkan needs the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home); metal is macOS-only.

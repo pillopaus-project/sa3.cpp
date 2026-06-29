@@ -46,12 +46,8 @@ For use with [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp):
 # pip install huggingface_hub
 python tools/download_models.py --variant medium --encoding f16   # fetches this set + the shared encoder
 
-sa3-generate --tok models/t5gemma-b-b-ul2-v1.0-vocab.gguf \
-    --t5 models/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf \
-    --cond models/stable-audio-3-medium-conditioner-v1.0-F32.gguf \
-    --dit models/stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf \
-    --same models/stable-audio-3-medium-same-l-v1.0-F16.gguf \
-    --prompt "upbeat funk groove with slap bass" --frames 128 --steps 8 --out song.wav
+# --model resolves the 5 gguf files in ./models by name
+sa3-generate --model medium --prompt "upbeat funk groove with slap bass" --out song.wav
 ```
 
 ## Performance

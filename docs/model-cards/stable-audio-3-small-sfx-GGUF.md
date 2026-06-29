@@ -44,12 +44,8 @@ For use with [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp):
 ```bash
 python tools/download_models.py --variant small-sfx --encoding f16
 
-sa3-generate --tok models/t5gemma-b-b-ul2-v1.0-vocab.gguf \
-    --t5 models/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf \
-    --cond models/stable-audio-3-small-sfx-conditioner-v1.0-F32.gguf \
-    --dit models/stable-audio-3-small-sfx-dit-0.5B-v1.0-F16.gguf \
-    --same models/stable-audio-3-small-sfx-same-s-v1.0-F16.gguf \
-    --prompt "a dog barking in a large empty hall" --frames 128 --steps 8 --out sfx.wav
+# --model resolves the gguf set in ./models by name
+sa3-generate --model small-sfx --prompt "a dog barking in a large empty hall" --out sfx.wav
 ```
 
 ## Performance

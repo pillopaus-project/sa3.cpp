@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -65,11 +66,37 @@ static void set_swa_bias(ggml_tensor* mt, const sa3::SameConfig& sc, int64_t N) 
     }
 }
 
+// Find the one file in `dir` whose name starts with `prefix` and ends with `suffix`.
+// "" if none; exits if ambiguous. Lets --model / --lora resolve gguf paths by the naming
+// convention, so the CLI doesn't need five explicit --tok/--t5/--cond/--dit/--same paths.
+static std::string resolve_one(const std::string& dir, const std::string& prefix, const std::string& suffix) {
+    namespace fs = std::filesystem;
+    std::string found; std::error_code ec;
+    if (!fs::is_directory(dir, ec)) return found;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        const std::string n = e.path().filename().string();
+        if (n.size() >= prefix.size() + suffix.size()
+            && n.compare(0, prefix.size(), prefix) == 0
+            && n.compare(n.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            if (!found.empty()) {
+                fprintf(stderr, "[sa3] ambiguous: multiple files match %s*%s in %s/\n",
+                        prefix.c_str(), suffix.c_str(), dir.c_str());
+                exit(1);
+            }
+            found = e.path().string();
+        }
+    }
+    return found;
+}
+
 int main(int argc, char** argv) {
     const bool prof = profile_enabled();
     const double t_total0 = wall_time_s();
     const char* tok_p = nullptr; const char* t5_p = nullptr; const char* dit_p = nullptr; const char* same_p = nullptr;
     const char* cond_p = nullptr;            // per-variant conditioner sidecar gguf (optional; falls back to --t5 if bundled)
+    const char* model_variant = nullptr;     // --model: resolve the 5 base ggufs by naming convention
+    const char* encoding = "f16";            // --encoding f16|f32 (which DiT/SAME precision --model picks)
+    const char* models_dir = "models";       // --models-dir: where the ggufs + lora-*.gguf live
     std::string prompt = "Upbeat funk groove with slap bass, bright horns, tight drums";
     const char* wav_p = "song.wav";
     const char* init_p = nullptr;            // audio2audio / inpaint: source WAV (encoded to z_init)
@@ -80,7 +107,10 @@ int main(int argc, char** argv) {
     int decode_chunk_size = 0, decode_overlap = 32;     // outer SAME-L decode tiling; 0 = monolithic
     int frames = 128, steps = 8; uint64_t seed = 0;
     for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
+        if      (!strcmp(argv[i], "--model")  && i+1 < argc) model_variant = argv[++i];
+        else if (!strcmp(argv[i], "--encoding") && i+1 < argc) encoding = argv[++i];
+        else if (!strcmp(argv[i], "--models-dir") && i+1 < argc) models_dir = argv[++i];
+        else if (!strcmp(argv[i], "--tok")    && i+1 < argc) tok_p = argv[++i];
         else if (!strcmp(argv[i], "--t5")     && i+1 < argc) t5_p = argv[++i];
         else if (!strcmp(argv[i], "--dit")    && i+1 < argc) dit_p = argv[++i];
         else if (!strcmp(argv[i], "--same")   && i+1 < argc) same_p = argv[++i];
@@ -104,9 +134,45 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--decode-overlap") && i+1 < argc) decode_overlap = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--keep-models")) keep_models = true;   // disable progressive VRAM frees
     }
+    // --model <variant>: fill the five base ggufs from <models-dir> by the naming convention.
+    // Explicit --tok/--t5/--cond/--dit/--same still win (override per-slot).
+    std::vector<std::string> resolved; resolved.reserve(5);   // keep resolved paths alive for the char* slots
+    if (model_variant) {
+        const std::string mv = model_variant, md = models_dir;
+        const std::string ENC = (strcmp(encoding, "f32") == 0) ? "F32" : "F16";
+        auto fill = [&](const char*& slot, const std::string& prefix, const std::string& suffix) {
+            if (slot) return;                                  // explicit flag overrides the convention
+            std::string p = resolve_one(md, prefix, suffix);
+            if (p.empty()) {
+                fprintf(stderr, "[sa3] --model %s: no %s*%s in %s/ (run: python tools/download_models.py --variant %s)\n",
+                        mv.c_str(), prefix.c_str(), suffix.c_str(), md.c_str(), mv.c_str());
+                exit(1);
+            }
+            resolved.push_back(std::move(p)); slot = resolved.back().c_str();
+        };
+        fill(tok_p,  "t5gemma-b-b-ul2-v1.0-vocab",             ".gguf");
+        fill(t5_p,   "t5gemma-b-b-ul2-encoder-",               ".gguf");        // shared encoder (F32)
+        fill(cond_p, "stable-audio-3-" + mv + "-conditioner-", ".gguf");        // F32
+        fill(dit_p,  "stable-audio-3-" + mv + "-dit-",  "-" + ENC + ".gguf");
+        fill(same_p, "stable-audio-3-" + mv + "-same-", "-" + ENC + ".gguf");
+    }
+    // --lora <name|path>: a bare name resolves to <models-dir>/lora-<name>-*.gguf; a real path is used as-is.
+    for (auto& spec : lora_specs) {
+        if (std::filesystem::exists(spec.first)) continue;
+        std::string p = resolve_one(models_dir, "lora-" + spec.first + "-", ".gguf");
+        if (p.empty()) {
+            fprintf(stderr, "[sa3] --lora %s: not a file and no lora-%s-*.gguf in %s/\n",
+                    spec.first.c_str(), spec.first.c_str(), models_dir);
+            exit(1);
+        }
+        spec.first = std::move(p);
+    }
+
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);   // inpaint mode (needs --init source)
     if (!tok_p || !t5_p || !dit_p || !same_p) {
-        fprintf(stderr, "usage: sa3-generate --tok <f> --t5 <f> --dit <f> --same <f> --prompt \"...\" --frames N --steps N --seed S --out song.wav\n");
+        fprintf(stderr, "usage: sa3-generate (--model medium|small-music|small-sfx [--encoding f16|f32] [--models-dir DIR]\n"
+                        "                     | --tok <f> --t5 <f> --cond <f> --dit <f> --same <f>)\n"
+                        "                     --prompt \"...\" [--lora NAME|PATH [--lora-strength S]]... [--frames N] [--steps N] [--seed S] [--out song.wav]\n");
         return 1;
     }
 

@@ -44,12 +44,8 @@ For use with [**sa3.cpp**](https://github.com/betweentwomidnights/sa3.cpp):
 ```bash
 python tools/download_models.py --variant small-music --encoding f16
 
-sa3-generate --tok models/t5gemma-b-b-ul2-v1.0-vocab.gguf \
-    --t5 models/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf \
-    --cond models/stable-audio-3-small-music-conditioner-v1.0-F32.gguf \
-    --dit models/stable-audio-3-small-music-dit-0.5B-v1.0-F16.gguf \
-    --same models/stable-audio-3-small-music-same-s-v1.0-F16.gguf \
-    --prompt "lo-fi hip hop beat, warm vinyl, mellow keys" --frames 128 --steps 8 --out song.wav
+# --model resolves the gguf set in ./models by name
+sa3-generate --model small-music --prompt "lo-fi hip hop beat, warm vinyl, mellow keys" --out song.wav
 ```
 
 ## Performance
