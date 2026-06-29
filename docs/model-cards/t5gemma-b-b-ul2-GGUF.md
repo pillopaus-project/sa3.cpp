@@ -30,9 +30,9 @@ repo. Validated against the PyTorch reference at cosine similarity ~1.0.
 | tokenizer | `t5gemma-b-b-ul2-v1.0-vocab.gguf` | Gemma byte-fallback BPE |
 
 Pair these with any SA3 variant repo's DiT + SAME + conditioner:
-[medium](https://huggingface.co/betweentwomidnights/stable-audio-3-medium-GGUF) ·
-[small-music](https://huggingface.co/betweentwomidnights/stable-audio-3-small-music-GGUF) ·
-[small-sfx](https://huggingface.co/betweentwomidnights/stable-audio-3-small-sfx-GGUF).
+[medium](https://huggingface.co/thepatch/stable-audio-3-medium-GGUF) ·
+[small-music](https://huggingface.co/thepatch/stable-audio-3-small-music-GGUF) ·
+[small-sfx](https://huggingface.co/thepatch/stable-audio-3-small-sfx-GGUF).
 `tools/download_models.py` fetches this repo automatically alongside whichever variant you pick.
 
 ## License

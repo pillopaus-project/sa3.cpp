@@ -27,14 +27,14 @@ reference at cosine similarity ~1.0.
 
 Multi-file model. Grab the **DiT** + **SAME** at your chosen precision and the **conditioner**, plus
 the shared **encoder + tokenizer** from
-[t5gemma-b-b-ul2-GGUF](https://huggingface.co/betweentwomidnights/t5gemma-b-b-ul2-GGUF).
+[t5gemma-b-b-ul2-GGUF](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF).
 
 | component | file | notes |
 |---|---|---|
 | DiT (diffusion transformer) | `stable-audio-3-small-music-dit-0.5B-v1.0-{F16,F32}.gguf` | pick one precision |
 | autoencoder (SAME-S) | `stable-audio-3-small-music-same-s-v1.0-{F16,F32}.gguf` | pick one precision |
 | conditioner | `stable-audio-3-small-music-conditioner-v1.0-F32.gguf` | tiny sidecar (prompt padding + seconds_total) |
-| encoder + tokenizer | → [t5gemma-b-b-ul2-GGUF](https://huggingface.co/betweentwomidnights/t5gemma-b-b-ul2-GGUF) | **shared** across all SA3 variants |
+| encoder + tokenizer | → [t5gemma-b-b-ul2-GGUF](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF) | **shared** across all SA3 variants |
 
 > **note:** SAME-S needs an **even** `--frames` count (the packed sequence must divide the chunk size).
 

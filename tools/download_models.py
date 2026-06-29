@@ -14,7 +14,7 @@ The HF namespace is not final yet (pending Stability packaging) — override wit
 import argparse, os, sys
 
 # TODO: confirm with Stability/Zach before publishing; override at runtime with --namespace.
-DEFAULT_NAMESPACE = "betweentwomidnights"
+DEFAULT_NAMESPACE = "thepatch"
 
 # variant -> (dit size_label, SAME suffix)
 VARIANTS = {
