@@ -76,6 +76,8 @@ int main(int argc, char** argv) {
     bool keep_models = false;        // --keep-models: don't free TE/DIT early (keep all resident)
     int decode_chunk_size = 0, decode_overlap = 32;     // outer SAME-L decode tiling; 0 = monolithic
     int frames = 128, steps = 8; uint64_t seed = 0;
+    std::string dist_shift = "LogSNR";                  // schedule warp: LogSNR|Flux|Full|None
+    float ds_p1 = 2000.0f, ds_p2 = -6.2f, ds_p3 = 0.0f, ds_p4 = 2.0f;   // LogSNR defaults (per-type, see --dist-shift)
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--model")  && i+1 < argc) model_variant = argv[++i];
         else if (!strcmp(argv[i], "--encoding") && i+1 < argc) encoding = argv[++i];
@@ -99,6 +101,16 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--lora-strength") && i+1 < argc) {   // sets the most recent --lora
             if (lora_specs.empty()) { fprintf(stderr, "--lora-strength must follow a --lora\n"); return 1; }
             lora_specs.back().second = (float)atof(argv[++i]);
+        }
+        else if (!strcmp(argv[i], "--dist-shift") && i+1 < argc) {   // selects type + its default params
+            dist_shift = argv[++i];
+            sa3::dist_shift_defaults(dist_shift, ds_p1, ds_p2, ds_p3, ds_p4);
+        }
+        else if (!strcmp(argv[i], "--dist-shift-params") && i+1 < argc) {   // override the 4 params (follows --dist-shift)
+            if (sscanf(argv[++i], "%f,%f,%f,%f", &ds_p1, &ds_p2, &ds_p3, &ds_p4) != 4) {
+                fprintf(stderr, "--dist-shift-params expects p1,p2,p3,p4 (meaning depends on --dist-shift)\n");
+                return 1;
+            }
         }
         else if (!strcmp(argv[i], "--chunked-decode")) decode_chunk_size = 128;
         else if (!strcmp(argv[i], "--decode-chunk-size") && i+1 < argc) decode_chunk_size = atoi(argv[++i]);
@@ -145,7 +157,8 @@ int main(int argc, char** argv) {
     if (!tok_p || !t5_p || !dit_p || !same_p) {
         fprintf(stderr, "usage: sa3-generate (--model medium|small-music|small-sfx [--encoding f16|f32] [--models-dir DIR]\n"
                         "                     | --tok <f> --t5 <f> --cond <f> --dit <f> --same <f>)\n"
-                        "                     --prompt \"...\" [--lora NAME|PATH [--lora-strength S]]... [--frames N] [--steps N] [--seed S] [--out song.wav]\n");
+                        "                     --prompt \"...\" [--lora NAME|PATH [--lora-strength S]]... [--frames N] [--steps N] [--seed S]\n"
+                        "                     [--dist-shift LogSNR|Flux|Full|None [--dist-shift-params p1,p2,p3,p4]] [--out song.wav]\n");
         return 1;
     }
     if (decode_chunk_size < 0 || decode_overlap < 0 ||
@@ -169,6 +182,8 @@ int main(int argc, char** argv) {
     params.inpaint_end       = inpaint_end;
     params.decode_chunk_size = decode_chunk_size;
     params.decode_overlap    = decode_overlap;
+    params.dist_shift        = dist_shift;
+    params.ds_p1 = ds_p1; params.ds_p2 = ds_p2; params.ds_p3 = ds_p3; params.ds_p4 = ds_p4;
     params.keep_models       = keep_models;
     for (auto& ls : lora_specs) params.loras.push_back(ls);
 

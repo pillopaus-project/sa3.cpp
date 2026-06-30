@@ -32,6 +32,14 @@ It binds to `127.0.0.1` by default (local only). The model loads lazily on the f
   "loras": [{"name": "kev", "strength": 1.0}, {"name": "keygen", "strength": 0.8}],
   "keep_models": false,          // default: frugal (free after each gen, reload next) — vst/daw-safe
 
+  // sampling-schedule distribution shift (optional) — mirrors the official SA3 gradio selector.
+  // default "LogSNR" reproduces the prior schedule exactly. dist_shift_params overrides the 4
+  // per-type params (meaning depends on type); omit it to use that type's defaults:
+  "dist_shift": "LogSNR",        // "LogSNR" | "Flux" | "Full" | "None"
+  "dist_shift_params": [2000, -6.2, 0.0, 2.0],  // LogSNR:(anchor_length,anchor_logsnr,rate,logsnr_end)
+                                                //  Flux:(min_len,max_len,alpha_min,alpha_max)
+                                                //  Full:(base_shift,max_shift,min_len,max_len)
+
   // audio2audio / inpaint (optional) — init_path is a LOCAL wav (the server is localhost):
   "init_path": "in.wav",         // audio2audio source; output length follows it
   "init_noise_level": 0.5,       // a2a strength (sigma_max); 1.0 == text2music

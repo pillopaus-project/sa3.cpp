@@ -63,6 +63,54 @@ inline void expo_features(float t, std::vector<float>& out, int dim, float min_f
     }
 }
 
+// SA3 sampling-schedule distribution shift. Warps ONE linear-schedule t in (0,1) to the shifted
+// t, matching stable_audio_3/inference/distribution_shift.py for the scalar (batch=1, sigma=1,
+// use_sine=False) case we always hit. Endpoints (t=0/1) are re-anchored by the caller, so this is
+// only ever called for interior t (no div-by-zero in Full, no log(0)). seq_len = latent frames T.
+//   type:  "LogSNR" | "Flux" | "Full" | "None"   (anything else => identity)
+//   LogSNR: p=(anchor_length, anchor_logsnr, rate, logsnr_end)
+//   Flux:   p=(min_length, max_length, alpha_min, alpha_max)
+//   Full:   p=(base_shift, max_shift, min_length, max_length)
+inline float dist_shift_warp(const std::string& type, float t, int seq_len,
+                             float p1, float p2, float p3, float p4) {
+    if (type == "LogSNR") {
+        const float anchor_length = p1, anchor_logsnr = p2, rate = p3, logsnr_end = p4;
+        const float logsnr_start = anchor_logsnr - rate * std::log2((float)seq_len / anchor_length);
+        const float logsnr = logsnr_end - t * (logsnr_end - logsnr_start);
+        return 1.0f / (1.0f + std::exp(logsnr));            // sigmoid(-logsnr)
+    }
+    if (type == "Flux") {
+        const float min_length = p1, max_length = p2, alpha_min = p3, alpha_max = p4;
+        const float sl = std::min(std::max((float)seq_len, min_length), max_length);
+        const float lmin = std::log(min_length);
+        float lmax = std::log(max_length);
+        if (lmax == lmin) lmax += 1e-8f;                    // constant-alpha guard (upstream)
+        const float frac = (std::log(sl) - lmin) / (lmax - lmin);
+        const float log_amin = std::log(std::max(alpha_min, 1e-8f));
+        const float log_amax = std::log(std::max(alpha_max, 1e-8f));
+        const float alpha = std::exp(log_amin + frac * (log_amax - log_amin));
+        return alpha * t / (1.0f + (alpha - 1.0f) * t);
+    }
+    if (type == "Full") {
+        const float base_shift = p1, max_shift = p2, min_length = p3, max_length = p4;
+        const float sl = std::min(std::max((float)seq_len, min_length), max_length);
+        const float mu = -(base_shift + (max_shift - base_shift) * (sl - min_length) / (max_length - min_length));
+        const float em = std::exp(mu);
+        return 1.0f - em / (em + t / (1.0f - t));           // (1/(1-t)-1) == t/(1-t), sigma=1
+    }
+    return t;                                               // "None" / unknown => identity
+}
+
+// Per-type defaults for the 4 dist-shift params, from the official SA3 configs / paper. The
+// CLI/server call this when the user selects a type without explicit params (mirrors the gradio,
+// where each type's sliders have their own defaults). LogSNR = the medium model default.
+inline void dist_shift_defaults(const std::string& type, float& p1, float& p2, float& p3, float& p4) {
+    if      (type == "Flux") { p1 = 256.0f; p2 = 4096.0f; p3 = 6.93f;  p4 = 6.93f;  } // Self-Flow audio sampleshift
+    else if (type == "Full") { p1 = 0.5f;   p2 = 1.15f;   p3 = 256.0f; p4 = 4096.0f; } // HF SA3 config (all variants)
+    else if (type == "None") { p1 = p2 = p3 = p4 = 0.0f; }
+    else                     { p1 = 2000.0f; p2 = -6.2f;  p3 = 0.0f;   p4 = 2.0f;   } // LogSNR (medium, rate=0)
+}
+
 inline double wall_time_s() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
@@ -169,6 +217,16 @@ struct GenParams {
     // Adapters applied (in order) for THIS request, then reset. Paths are full gguf paths
     // (the CLI/server resolve names -> paths before building GenParams).
     std::vector<std::pair<std::string, float>> loras;   // (gguf path, strength)
+
+    // Sampling-schedule distribution shift — warps the linear t schedule. Mirrors the official
+    // SA3 gradio selector {LogSNR, Flux, Full, None}; the 4 params' meaning is per-type (see
+    // sa3::dist_shift_warp / dist_shift_defaults). The defaults below are the medium model's
+    // LogSNR with rate=0, i.e. byte-identical to the previously-hardcoded schedule.
+    std::string dist_shift = "LogSNR";   // "LogSNR" | "Flux" | "Full" | "None"
+    float ds_p1 = 2000.0f;  // LogSNR:anchor_length  Flux:min_length  Full:base_shift
+    float ds_p2 = -6.2f;    // LogSNR:anchor_logsnr  Flux:max_length  Full:max_shift
+    float ds_p3 = 0.0f;     // LogSNR:rate           Flux:alpha_min   Full:min_length
+    float ds_p4 = 2.0f;     // LogSNR:logsnr_end     Flux:alpha_max   Full:max_length
 
     // Long-audio decode tiling; 0 = monolithic (the sliding-window decoder is already linear).
     int decode_chunk_size = 0;
@@ -292,6 +350,8 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     const float init_noise_level = params.init_noise_level;
     const float inpaint_start = params.inpaint_start, inpaint_end = params.inpaint_end;
     const int decode_chunk_size = params.decode_chunk_size, decode_overlap = params.decode_overlap;
+    const std::string& dist_shift = params.dist_shift;
+    const float ds_p1 = params.ds_p1, ds_p2 = params.ds_p2, ds_p3 = params.ds_p3, ds_p4 = params.ds_p4;
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);
     const bool has_init = !params.init_audio.empty();
 
@@ -440,12 +500,15 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     }
     profile_log(prof, "conditioning", wall_time_s() - t0);
 
-    // ---------- schedule (LogSNRShift rate=0) ----------
-    const float logsnr_start = -6.2f, logsnr_end = 2.0f, coef = logsnr_end - logsnr_start;
+    // ---------- schedule (SA3 distribution shift; default = LogSNR rate=0) ----------
+    // Linear t = sigma_max*(1 - i/steps), warped by the selected dist-shift, with endpoints
+    // re-anchored (t[0]=sigma_max, t[steps]=0) exactly as upstream build_schedule does.
     std::vector<float> sigmas(steps+1);
     for (int i = 0; i <= steps; i++) {
         float t_in = sigma_max * (1.0f - (float)i / steps);
-        sigmas[i] = (i == 0) ? sigma_max : (i == steps) ? 0.0f : 1.0f / (1.0f + expf(-(coef*t_in - logsnr_end)));
+        sigmas[i] = (i == 0) ? sigma_max
+                  : (i == steps) ? 0.0f
+                  : sa3::dist_shift_warp(dist_shift, t_in, (int)T, ds_p1, ds_p2, ds_p3, ds_p4);
     }
 
     // ---------- audio2audio: encode init audio -> latent z_init [latent, T] ----------

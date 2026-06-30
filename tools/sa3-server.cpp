@@ -100,6 +100,15 @@ int main(int argc, char** argv) {
         params.init_noise_level = (float)D("init_noise_level", 0.85);
         params.inpaint_start    = (float)D("inpaint_start", -1.0);   // inpaint/continuation region (sec)
         params.inpaint_end      = (float)D("inpaint_end", -1.0);
+        // schedule warp: "dist_shift" type + its defaults, optionally overridden by a 4-number "dist_shift_params".
+        params.dist_shift       = S("dist_shift", "LogSNR");
+        sa3::dist_shift_defaults(params.dist_shift, params.ds_p1, params.ds_p2, params.ds_p3, params.ds_p4);
+        if (yyjson_val* dsp = yyjson_obj_get(root, "dist_shift_params"); dsp && yyjson_is_arr(dsp)) {
+            float* slots[4] = { &params.ds_p1, &params.ds_p2, &params.ds_p3, &params.ds_p4 };
+            yyjson_val* v; yyjson_arr_iter di; yyjson_arr_iter_init(dsp, &di);
+            for (int k = 0; k < 4 && (v = yyjson_arr_iter_next(&di)); k++)
+                if (yyjson_is_num(v)) *slots[k] = (float)yyjson_get_num(v);
+        }
         std::string init_path   = S("init_path", "");                // local WAV for audio2audio / inpaint
 
         std::string perr;
