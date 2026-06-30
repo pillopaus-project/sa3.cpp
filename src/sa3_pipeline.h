@@ -222,6 +222,7 @@ private:
     Tokenizer tok_;
     GgufModel TE_, DIT_, AE_;
     std::unique_ptr<GgufModel> CD_;    // per-variant conditioner sidecar, or null => use TE_
+    std::vector<std::pair<std::string,float>> dit_loras_;  // adapters currently baked into the live DiT (in-place)
     T5GemmaConfig tc_{};
     DitConfig     dc_{};
     SameConfig    sc_{};
@@ -236,6 +237,7 @@ inline void Pipeline::ensure_nets_loaded() {
     AE_  = load_gguf(paths_.same.c_str(), backend_);
     CD_  = paths_.cond.empty() ? nullptr
                                : std::make_unique<GgufModel>(load_gguf(paths_.cond.c_str(), backend_));
+    dit_loras_.clear();        // a freshly loaded DiT carries no adapters
     nets_resident_ = true;
 }
 
@@ -304,16 +306,26 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     const bool same_l_flash_attn = same_l_flash_mode != 0;
     const int ds = sc.patch_size * sc.output_seg;
 
-    // ---------- LoRA/DoRA adapters: recompute W_eff in weight space (chained in flag order) ----------
-    std::vector<sa3::LoraAdapter> adapters;
-    sa3::LoraStack lstack;
-    for (auto& ls : params.loras) adapters.push_back(sa3::load_lora(ls.first.c_str(), ls.second, DIT.backend));
-    if (!adapters.empty()) {
-        lstack = sa3::apply_loras(DIT, adapters);
-        printf("lora: applied %zu adapter(s) -> %zu overridden weights:\n", adapters.size(), DIT.overrides.size());
-        for (size_t i = 0; i < adapters.size(); i++)
-            printf("  [%zu] %s  type=%s strength=%.2f\n", i, params.loras[i].first.c_str(),
-                   adapters[i].type.c_str(), adapters[i].strength);
+    // ---------- LoRA/DoRA adapters (chained in order) ----------
+    // apply_loras is IN-PLACE over the DiT base, so changing adapters/strength needs a clean base.
+    // Only reload + re-apply when this request's set differs from what's already baked into the DiT
+    // (so resident back-to-back requests with the SAME adapters skip the work; a change pays a reload).
+    if (dit_loras_ != params.loras) {
+        if (!dit_loras_.empty()) {           // DiT carries a prior request's adapters -> reload a clean base
+            DIT.free();
+            DIT_ = load_gguf(paths_.dit.c_str(), backend_);
+            dit_loras_.clear();
+        }
+        if (!params.loras.empty()) {
+            std::vector<sa3::LoraAdapter> adapters;
+            for (auto& ls : params.loras) adapters.push_back(sa3::load_lora(ls.first.c_str(), ls.second, DIT.backend));
+            sa3::apply_loras(DIT, adapters);
+            printf("lora: applied %zu adapter(s):\n", adapters.size());
+            for (size_t i = 0; i < adapters.size(); i++)
+                printf("  [%zu] %s  type=%s strength=%.2f\n", i, params.loras[i].first.c_str(),
+                       adapters[i].type.c_str(), adapters[i].strength);
+        }
+        dit_loras_ = params.loras;
     }
 
     // ---------- init audio: pad + derive output T (overrides params.frames) ----------
@@ -557,7 +569,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     profile_log(prof, "dit_get_update", dit_download_update);
     profile_log(prof, "dit_total", wall_time_s() - t_dit_total);
     ggml_gallocr_free(alloc_dit); ggml_free(dctx);
-    if (!keep_models) DIT.free();
+    if (!keep_models) { DIT.free(); dit_loras_.clear(); }   // DiT gone -> next gen reloads a clean base
 
     // ---------- decode -> samples ----------
     const double t_dec_total = wall_time_s();

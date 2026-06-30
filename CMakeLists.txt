@@ -61,3 +61,18 @@ target_link_libraries(sa3-tokenize PRIVATE sa3)
 
 add_executable(sa3-generate tools/sa3-generate.cpp)
 target_link_libraries(sa3-generate PRIVATE sa3)
+
+# sa3-server: HTTP over the pipeline. Vendored cpp-httplib (split impl) + yyjson (C).
+find_package(Threads REQUIRED)
+add_executable(sa3-server tools/sa3-server.cpp
+    vendor/cpp-httplib/httplib.cpp
+    vendor/yyjson/yyjson.c)
+target_link_libraries(sa3-server PRIVATE sa3 Threads::Threads)
+target_include_directories(sa3-server PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/cpp-httplib
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
+if(MSVC)
+    set_source_files_properties(vendor/yyjson/yyjson.c vendor/cpp-httplib/httplib.cpp PROPERTIES COMPILE_FLAGS /w)
+else()
+    set_source_files_properties(vendor/yyjson/yyjson.c vendor/cpp-httplib/httplib.cpp PROPERTIES COMPILE_FLAGS -w)
+endif()

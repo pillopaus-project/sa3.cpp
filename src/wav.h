@@ -31,6 +31,27 @@ inline void write_wav_planar(const std::string& path, const float* data, int n_s
     fclose(f);
 }
 
+// Same WAV bytes in memory (for an HTTP response body, etc.) instead of a file.
+inline std::string wav_planar_bytes(const float* data, int n_samples, int n_ch, int sample_rate) {
+    auto clip = [](float v){ v = v < -1.f ? -1.f : (v > 1.f ? 1.f : v); return (int16_t)(v * 32767.0f); };
+    std::vector<int16_t> inter((size_t)n_samples * n_ch);
+    for (int s = 0; s < n_samples; s++)
+        for (int c = 0; c < n_ch; c++)
+            inter[(size_t)s*n_ch + c] = clip(data[(size_t)c*n_samples + s]);
+    const uint32_t data_bytes = (uint32_t)inter.size() * sizeof(int16_t);
+    const uint32_t byte_rate  = sample_rate * n_ch * 2;
+    std::string out;
+    auto bytes = [&](const void* p, size_t n){ out.append((const char*)p, n); };
+    auto u32 = [&](uint32_t v){ bytes(&v, 4); };
+    auto u16 = [&](uint16_t v){ bytes(&v, 2); };
+    bytes("RIFF", 4); u32(36 + data_bytes); bytes("WAVE", 4);
+    bytes("fmt ", 4); u32(16); u16(1); u16((uint16_t)n_ch);
+    u32(sample_rate); u32(byte_rate); u16((uint16_t)(n_ch*2)); u16(16);
+    bytes("data", 4); u32(data_bytes);
+    bytes(inter.data(), data_bytes);
+    return out;
+}
+
 // Read a 16-bit PCM WAV into planar f32 channels (ch0[0..n-1], ch1[0..n-1], ...),
 // the same layout write_wav_planar consumes and same_encode expects ([L, ch], L fastest).
 inline std::vector<float> read_wav_planar(const std::string& path, int& n_samples,
