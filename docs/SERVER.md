@@ -30,7 +30,13 @@ It binds to `127.0.0.1` by default (local only). The model loads lazily on the f
   "steps": 8,
   "seed": 0,
   "loras": [{"name": "kev", "strength": 1.0}, {"name": "keygen", "strength": 0.8}],
-  "keep_models": false           // default: frugal (free after each gen, reload next) — vst/daw-safe
+  "keep_models": false,          // default: frugal (free after each gen, reload next) — vst/daw-safe
+
+  // audio2audio / inpaint (optional) — init_path is a LOCAL wav (the server is localhost):
+  "init_path": "in.wav",         // audio2audio source; output length follows it
+  "init_noise_level": 0.5,       // a2a strength (sigma_max); 1.0 == text2music
+  "inpaint_start": 4.0,          // continuation/inpaint: regenerate [start,end] seconds, keep the rest
+  "inpaint_end": 30.0            // also the total output duration (a short clip can extend)
 }
 ```
 LoRA `name` resolves to `<adapters-dir>/lora-<name>-*.gguf`; a full `"path"` also works. Set
@@ -61,7 +67,10 @@ strength correct for free. For a long-running service that wants lowest latency,
 and call `POST /unload` from your orchestrator when you need the VRAM back (model-switch, idle, pressure) —
 the same pattern as the PyTorch sa3 service.
 
-## Not yet over HTTP
+## Notes
 
-`/generate` currently does text2music + LoRA. audio2audio / inpaint work in the pipeline but need the init
-WAV uploaded (multipart or base64) — a follow-up. For a C-ABI in-process alternative, see `libsa3` (planned).
+`/generate` covers the full pipeline — text2music, LoRA, audio2audio, and inpaint/continuation. The init
+audio is passed as a **local file path** (`init_path`), which is the simple, correct thing for a localhost
+backend; a base64/multipart upload path could be added later if a *remote* or fully in-memory client ever
+needs it. (For an in-process C-ABI alternative to the server, a `libsa3` shim is possible but deferred —
+HTTP already covers the JUCE/IPlug2/gary4local consumers.)

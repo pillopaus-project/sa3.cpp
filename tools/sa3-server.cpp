@@ -98,6 +98,9 @@ int main(int argc, char** argv) {
         params.seed             = (uint64_t)I("seed", 0);
         params.keep_models      = B("keep_models", false);   // FRUGAL default
         params.init_noise_level = (float)D("init_noise_level", 0.85);
+        params.inpaint_start    = (float)D("inpaint_start", -1.0);   // inpaint/continuation region (sec)
+        params.inpaint_end      = (float)D("inpaint_end", -1.0);
+        std::string init_path   = S("init_path", "");                // local WAV for audio2audio / inpaint
 
         std::string perr;
         yyjson_val* loras = yyjson_obj_get(root, "loras");
@@ -120,6 +123,15 @@ int main(int argc, char** argv) {
 
         if (!perr.empty())            { res.status = 400; res.set_content(json_err(perr), "application/json"); return; }
         if (params.prompt.empty())    { res.status = 400; res.set_content(json_err("prompt required"), "application/json"); return; }
+
+        if (!init_path.empty()) {     // audio2audio / inpaint source (local path — the server is localhost)
+            if (!std::filesystem::exists(init_path)) {
+                res.status = 400; res.set_content(json_err("init_path not found: " + init_path), "application/json"); return;
+            }
+            int ns = 0, nc = 0, sr = 0;
+            params.init_audio = sa3::read_wav_planar(init_path, ns, nc, sr);
+            params.init_n_samp = ns; params.init_n_ch = nc;
+        }
 
         std::string err;
         if (!ensure_loaded(err)) { res.status = 500; res.set_content(json_err(err), "application/json"); return; }
