@@ -7,6 +7,7 @@
 #include "dit.h"
 #include "same_ae.h"
 #include "lora.h"
+#include "sa3_pipeline.h"
 #include "rng.h"
 #include "wav.h"
 
@@ -99,29 +100,6 @@ static void load_dotenv() {
     }
 }
 
-// Find the one file in `dir` whose name starts with `prefix` and ends with `suffix`.
-// "" if none; exits if ambiguous. Lets --model / --lora resolve gguf paths by the naming
-// convention, so the CLI doesn't need five explicit --tok/--t5/--cond/--dit/--same paths.
-static std::string resolve_one(const std::string& dir, const std::string& prefix, const std::string& suffix) {
-    namespace fs = std::filesystem;
-    std::string found; std::error_code ec;
-    if (!fs::is_directory(dir, ec)) return found;
-    for (const auto& e : fs::directory_iterator(dir, ec)) {
-        const std::string n = e.path().filename().string();
-        if (n.size() >= prefix.size() + suffix.size()
-            && n.compare(0, prefix.size(), prefix) == 0
-            && n.compare(n.size() - suffix.size(), suffix.size(), suffix) == 0) {
-            if (!found.empty()) {
-                fprintf(stderr, "[sa3] ambiguous: multiple files match %s*%s in %s/\n",
-                        prefix.c_str(), suffix.c_str(), dir.c_str());
-                exit(1);
-            }
-            found = e.path().string();
-        }
-    }
-    return found;
-}
-
 int main(int argc, char** argv) {
     load_dotenv();   // ./.env -> SA3_* defaults (real env wins); must precede every getenv below
     const bool prof = profile_enabled();
@@ -180,7 +158,7 @@ int main(int argc, char** argv) {
         const std::string ENC = (strcmp(encoding, "f32") == 0) ? "F32" : "F16";
         auto fill = [&](const char*& slot, const std::string& prefix, const std::string& suffix) {
             if (slot) return;                                  // explicit flag overrides the convention
-            std::string p = resolve_one(md, prefix, suffix);
+            std::string p = sa3::resolve_one(md, prefix, suffix);
             if (p.empty()) {
                 fprintf(stderr, "[sa3] --model %s: no %s*%s in %s/ (run: python tools/download_models.py --variant %s)\n",
                         mv.c_str(), prefix.c_str(), suffix.c_str(), md.c_str(), mv.c_str());
@@ -199,7 +177,7 @@ int main(int argc, char** argv) {
     const char* adir = adapters_dir ? adapters_dir : models_dir;
     for (auto& spec : lora_specs) {
         if (std::filesystem::exists(spec.first)) continue;
-        std::string p = resolve_one(adir, "lora-" + spec.first + "-", ".gguf");
+        std::string p = sa3::resolve_one(adir, "lora-" + spec.first + "-", ".gguf");
         if (p.empty()) {
             fprintf(stderr, "[sa3] --lora %s: not a file and no lora-%s-*.gguf in %s/\n",
                     spec.first.c_str(), spec.first.c_str(), adir);
