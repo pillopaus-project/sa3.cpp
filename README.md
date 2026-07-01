@@ -18,11 +18,14 @@ cd sa3.cpp
 # 2. download a model set into ./models  (needs: python3 -m pip install huggingface_hub)
 python3 tools/download_models.py --variant medium --encoding f16
 
-# 3. generate — --model resolves the gguf set in ./models by name
-./build-cuda/bin/sa3-generate --model medium --prompt "upbeat funk groove with slap bass" --out song.wav
+# 3. put the tools on PATH for this shell (points SA3_MODELS_DIR at ./models too)
+source ./env.sh        # windows:  env.cmd  (cmd)   or   . .\env.ps1  (powershell)
+
+# 4. generate — --model resolves the gguf set in ./models by name
+sa3-generate --model medium --prompt "upbeat funk groove with slap bass" --out song.wav
 
 # adapters resolve the same way: --lora <name> finds models/lora-<name>-*.gguf
-./build-cuda/bin/sa3-generate --model medium --lora kev --lora keygen --prompt "breakcore 140bpm" --out song.wav
+sa3-generate --model medium --lora kev --lora keygen --prompt "breakcore 140bpm" --out song.wav
 ```
 
 (`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still

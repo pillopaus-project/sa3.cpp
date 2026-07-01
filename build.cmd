@@ -41,3 +41,14 @@ echo [sa3] building ...
 cmake --build %DIR% --config Release
 if errorlevel 1 exit /b 1
 echo [sa3] done -^> %DIR%\bin\Release\
+
+rem Write env files so the tools run from any dir without the long path.
+set "BIN=%CD%\%DIR%\bin\Release"
+> env.cmd echo @set "PATH=%BIN%;%%PATH%%"
+>> env.cmd echo @set "SA3_MODELS_DIR=%CD%\models"
+> env.ps1 echo $env:Path = "%BIN%;$env:Path"
+>> env.ps1 echo $env:SA3_MODELS_DIR = "%CD%\models"
+echo [sa3] to run the tools from any dir:
+echo [sa3]   cmd:         env.cmd
+echo [sa3]   powershell:  . .\env.ps1
+echo [sa3]   then, e.g.:  sa3-generate --model medium --prompt "..." --out song.wav
