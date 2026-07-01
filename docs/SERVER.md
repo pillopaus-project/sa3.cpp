@@ -13,6 +13,8 @@ for progress and, on completion, the base64 audio. That makes it a drop-in for a
 ./build/bin/Release/sa3-server.exe --model medium --encoding f16 --port 8086
 # args: --host (default 127.0.0.1) --port (8086) --model <variant> --encoding f16|f32
 #       --models-dir DIR (or SA3_MODELS_DIR) --adapters-dir DIR (or SA3_ADAPTERS_DIR)
+#       --prompts-dir DIR (or SA3_PROMPTS_DIR)
+#       --source-loras-dir DIR (or SA3_SOURCE_LORAS_DIR)
 ```
 
 It binds to `127.0.0.1` by default (local only). The model loads lazily on the first `/generate`.
@@ -21,6 +23,8 @@ It binds to `127.0.0.1` by default (local only). The model loads lazily on the f
 
 | method | path | body / result |
 |---|---|---|
+| `GET`  | `/loras`    | `{success, loras:[{index,name,path}], adapters_dir, model_loaded}` |
+| `GET`  | `/prompts`  | prompt dice pools, optionally blended with `?lora=name` or `?lora=a,b` |
 | `GET`  | `/health`   | `{status, model, encoding, loaded}` (lock-free — never blocks behind a gen) |
 | `POST` | `/generate` | JSON request (below) → **`{session_id, seed}`** immediately; generation runs in the background |
 | `GET`  | `/poll_status/<session_id>` | `{success, generation_in_progress, progress, step, total_steps, status, queue_status, ...}`; on `status:"completed"` also `audio_data` (base64 wav) + `meta:{seed}` |
@@ -71,6 +75,62 @@ Finished jobs are pruned after 10 min.
 LoRA `name` resolves to `<adapters-dir>/lora-<name>-*.gguf`; a full `"path"` also works. Set
 `keep_models: true` to keep the model resident between requests (lower latency, more VRAM); the server
 reloads a clean DiT only when a request's adapter set changes, so strengths can vary per request either way.
+
+## LoRA and prompt discovery
+
+`GET /loras` scans the adapters directory and returns GGUF adapter names that can be passed back in a
+generation request. It also reports source `.ckpt` / `.safetensors` exports from `--source-loras-dir`
+under `source_loras`; those need conversion before the C++ runtime can load them.
+
+```json
+{
+  "success": true,
+  "loras": [{"index": 0, "name": "kev", "path": "models/lora-kev-f32.gguf"}]
+}
+```
+
+The resolver accepts:
+
+- full adapter paths
+- exact files in the adapters directory
+- `lora-<name>-*.gguf`
+- `<name>-*.gguf`
+
+Source adapters can be converted to runtime GGUF adapters with:
+
+```powershell
+.venv\Scripts\python.exe tools\convert_lora.py --in loras\kev --out models\lora-kev-f32.gguf
+.venv\Scripts\python.exe tools\convert_lora.py --in loras\keygen --out models\lora-keygen-f32.gguf
+```
+
+`GET /prompts` reads dice prompt pools from `--prompts-dir` / `SA3_PROMPTS_DIR`
+and returns the same shape used by gary4local:
+
+```json
+{
+  "success": true,
+  "missing_loras": [],
+  "prompts": {
+    "version": 1,
+    "dice": {
+      "generic": ["warm analog groove"]
+    }
+  }
+}
+```
+
+The default file is `prompts/defaults.json`. Per-adapter prompt files live beside it
+as `<lora>.json`, for example `prompts/kev.json`. A client can request an adapter's
+training-distribution prompts with:
+
+```text
+/prompts?lora=kev
+/prompts?lora=kev,keygen
+```
+
+When a LoRA-specific prompt file contains a bucket such as `generic` or `drums`,
+that bucket replaces the default bucket for the response. This lets adapter prompt
+pools stay narrow and distribution-faithful without losing unrelated buckets.
 
 ## Calling it (async flow)
 

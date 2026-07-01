@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "source": {
+    "lora": "koan",
+    "files": 42,
+    "unique_genres": 12
+  },
+  "dice": {
+    "instrumental": [
+      "synthwave, cinematic electronica",
+      "lo-fi hip hop, downtempo, jazzy",
+      "breakcore, glitchcore",
+      "breakcore, glitch hop, psybass",
+      "melodic electronica, ambient techno",
+      "glitch hop, neurofunk, electronica, intricate breakbeat",
+      "IDM, ambient electronica",
+      "neurofunk, drum and bass, dark electronica",
+      "instrumental funk, funk fusion, jazzy",
+      "electro, glitch hop",
+      "breakcore, neurofunk, dubstep",
+      "neurofunk, drum and bass"
+    ]
+  }
+}

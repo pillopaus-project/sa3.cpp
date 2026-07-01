@@ -16,16 +16,23 @@
 #include "httplib.h"
 #include "yyjson.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <random>
+#include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace {
 
@@ -36,6 +43,8 @@ std::string g_variant   = "medium";
 std::string g_encoding  = "f16";
 std::string g_models_dir;
 std::string g_adapters_dir;
+std::string g_prompts_dir;
+std::string g_source_loras_dir;
 
 // --- async job registry (mirrors gary4local /poll_status) ---
 struct Job {
@@ -64,6 +73,282 @@ std::string json_escape(const std::string& s) {
         else o += c;
     }
     return o;
+}
+
+bool starts_with(const std::string& s, const std::string& prefix) {
+    return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool ends_with(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+std::string lower_ascii(std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+std::vector<std::string> split_dash(const std::string& s) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= s.size()) {
+        size_t sep = s.find('-', start);
+        parts.push_back(s.substr(start, sep == std::string::npos ? std::string::npos : sep - start));
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    return parts;
+}
+
+std::string join_dash(const std::vector<std::string>& parts) {
+    std::string out;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (i) out += "-";
+        out += parts[i];
+    }
+    return out;
+}
+
+bool looks_like_version_token(const std::string& token) {
+    return token.size() >= 2 && (token[0] == 'v' || token[0] == 'V') && std::isdigit((unsigned char)token[1]);
+}
+
+std::string strip_lora_suffix_tokens(const std::string& raw) {
+    std::vector<std::string> parts = split_dash(raw);
+    static const std::set<std::string> trailing = {
+        "lora", "f32", "f16", "q8_0", "q6_k", "q5_k_m", "q4_k_m"
+    };
+    while (!parts.empty()) {
+        const std::string t = lower_ascii(parts.back());
+        if (trailing.count(t) || looks_like_version_token(parts.back())) parts.pop_back();
+        else break;
+    }
+    return join_dash(parts);
+}
+
+std::string infer_lora_name_from_filename(const std::filesystem::path& path) {
+    const std::string stem = path.stem().string();
+    if (starts_with(stem, "lora-")) return strip_lora_suffix_tokens(stem.substr(5));
+    if (ends_with(lower_ascii(stem), "-lora")) return strip_lora_suffix_tokens(stem);
+    return "";
+}
+
+std::string resolve_lora_path(const std::string& adapters_dir, const std::string& name_or_path) {
+    namespace fs = std::filesystem;
+    if (fs::exists(name_or_path) && lower_ascii(fs::path(name_or_path).extension().string()) == ".gguf") return name_or_path;
+
+    const fs::path direct = fs::path(adapters_dir) / name_or_path;
+    if (fs::exists(direct) && lower_ascii(direct.extension().string()) == ".gguf") return direct.string();
+
+    const fs::path direct_gguf = fs::path(adapters_dir) / (name_or_path + ".gguf");
+    if (fs::exists(direct_gguf)) return direct_gguf.string();
+
+    std::string p = sa3::resolve_one(adapters_dir, "lora-" + name_or_path + "-", ".gguf");
+    if (!p.empty()) return p;
+    return sa3::resolve_one(adapters_dir, name_or_path + "-", ".gguf");
+}
+
+struct LoraEntry {
+    std::string name;
+    std::string path;
+};
+
+struct SourceLoraEntry {
+    std::string name;
+    std::string safetensors_path;
+    std::string ckpt_path;
+    std::string config_path;
+};
+
+std::vector<LoraEntry> scan_loras(const std::string& adapters_dir) {
+    namespace fs = std::filesystem;
+    std::vector<LoraEntry> out;
+    std::set<std::string> seen;
+    std::error_code ec;
+    if (!fs::is_directory(adapters_dir, ec)) return out;
+
+    for (const auto& e : fs::directory_iterator(adapters_dir, ec)) {
+        if (ec) break;
+        if (!e.is_regular_file(ec)) continue;
+        if (lower_ascii(e.path().extension().string()) != ".gguf") continue;
+        std::string name = infer_lora_name_from_filename(e.path());
+        if (name.empty()) continue;
+        const std::string key = lower_ascii(name);
+        if (!seen.insert(key).second) continue;
+        out.push_back({name, e.path().string()});
+    }
+    std::sort(out.begin(), out.end(), [](const LoraEntry& a, const LoraEntry& b) {
+        return lower_ascii(a.name) < lower_ascii(b.name);
+    });
+    return out;
+}
+
+std::vector<SourceLoraEntry> scan_source_loras(const std::string& source_dir) {
+    namespace fs = std::filesystem;
+    std::map<std::string, SourceLoraEntry> by_name;
+    std::error_code ec;
+    if (!fs::is_directory(source_dir, ec)) return {};
+
+    for (const auto& e : fs::directory_iterator(source_dir, ec)) {
+        if (ec) break;
+        if (!e.is_regular_file(ec)) continue;
+        const std::string ext = lower_ascii(e.path().extension().string());
+        if (ext != ".ckpt" && ext != ".safetensors" && ext != ".json") continue;
+
+        const std::string stem = e.path().stem().string();
+        auto& entry = by_name[stem];
+        entry.name = stem;
+        if (ext == ".ckpt") entry.ckpt_path = e.path().string();
+        else if (ext == ".safetensors") entry.safetensors_path = e.path().string();
+        else if (ext == ".json") entry.config_path = e.path().string();
+    }
+
+    std::vector<SourceLoraEntry> out;
+    for (auto& kv : by_name) {
+        if (kv.second.ckpt_path.empty() && kv.second.safetensors_path.empty()) continue;
+        out.push_back(std::move(kv.second));
+    }
+    std::sort(out.begin(), out.end(), [](const SourceLoraEntry& a, const SourceLoraEntry& b) {
+        return lower_ascii(a.name) < lower_ascii(b.name);
+    });
+    return out;
+}
+
+std::string json_string_array(const std::vector<std::string>& values) {
+    std::string body = "[";
+    for (size_t i = 0; i < values.size(); i++) {
+        if (i) body += ",";
+        body += "\"" + json_escape(values[i]) + "\"";
+    }
+    body += "]";
+    return body;
+}
+
+std::string loras_json(const std::vector<LoraEntry>& loras) {
+    std::string body = "[";
+    for (size_t i = 0; i < loras.size(); i++) {
+        if (i) body += ",";
+        body += "{\"index\":" + std::to_string(i)
+             + ",\"name\":\"" + json_escape(loras[i].name)
+             + "\",\"path\":\"" + json_escape(loras[i].path) + "\"}";
+    }
+    body += "]";
+    return body;
+}
+
+std::string source_loras_json(const std::vector<SourceLoraEntry>& loras) {
+    std::string body = "[";
+    for (size_t i = 0; i < loras.size(); i++) {
+        if (i) body += ",";
+        body += "{\"name\":\"" + json_escape(loras[i].name)
+             + "\",\"runnable\":false"
+             + ",\"safetensors_path\":\"" + json_escape(loras[i].safetensors_path)
+             + "\",\"ckpt_path\":\"" + json_escape(loras[i].ckpt_path)
+             + "\",\"config_path\":\"" + json_escape(loras[i].config_path) + "\"}";
+    }
+    body += "]";
+    return body;
+}
+
+bool read_text_file(const std::filesystem::path& path, std::string& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+using DiceMap = std::map<std::string, std::vector<std::string>>;
+
+void add_unique_prompt(std::vector<std::string>& prompts, std::set<std::string>& seen, const std::string& prompt) {
+    if (prompt.empty()) return;
+    const std::string key = lower_ascii(prompt);
+    if (!seen.insert(key).second) return;
+    prompts.push_back(prompt);
+}
+
+bool load_dice_file(const std::filesystem::path& path, DiceMap& dice, int* version = nullptr) {
+    std::string text;
+    if (!read_text_file(path, text)) return false;
+    yyjson_doc* doc = yyjson_read(text.c_str(), text.size(), 0);
+    if (!doc) return false;
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if (version) {
+        yyjson_val* v = yyjson_obj_get(root, "version");
+        if (v && yyjson_is_int(v)) *version = (int)yyjson_get_int(v);
+    }
+    yyjson_val* dice_obj = yyjson_obj_get(root, "dice");
+    if (!dice_obj || !yyjson_is_obj(dice_obj)) { yyjson_doc_free(doc); return false; }
+
+    yyjson_obj_iter iter;
+    yyjson_obj_iter_init(dice_obj, &iter);
+    yyjson_val* key;
+    while ((key = yyjson_obj_iter_next(&iter))) {
+        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        if (!yyjson_is_str(key) || !yyjson_is_arr(value)) continue;
+        const std::string bucket = yyjson_get_str(key);
+        std::set<std::string> seen;
+        auto& prompts = dice[bucket];
+        for (const auto& existing : prompts) seen.insert(lower_ascii(existing));
+
+        yyjson_val* item;
+        yyjson_arr_iter ai;
+        yyjson_arr_iter_init(value, &ai);
+        while ((item = yyjson_arr_iter_next(&ai))) {
+            if (yyjson_is_str(item)) add_unique_prompt(prompts, seen, yyjson_get_str(item));
+        }
+    }
+    yyjson_doc_free(doc);
+    return true;
+}
+
+std::vector<std::string> prompt_pool_names(const std::string& prompts_dir) {
+    namespace fs = std::filesystem;
+    std::vector<std::string> out;
+    std::error_code ec;
+    if (!fs::is_directory(prompts_dir, ec)) return out;
+    for (const auto& e : fs::directory_iterator(prompts_dir, ec)) {
+        if (ec) break;
+        if (!e.is_regular_file(ec)) continue;
+        if (lower_ascii(e.path().extension().string()) != ".json") continue;
+        std::string name = lower_ascii(e.path().stem().string());
+        if (name == "defaults") continue;
+        out.push_back(name);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+std::vector<std::string> selected_lora_prompt_names(const httplib::Request& req) {
+    std::vector<std::string> out;
+    std::set<std::string> seen;
+    const size_t count = req.get_param_value_count("lora");
+    for (size_t i = 0; i < count; i++) {
+        std::string value = req.get_param_value("lora", i);
+        size_t start = 0;
+        while (start <= value.size()) {
+            size_t sep = value.find(',', start);
+            std::string name = lower_ascii(value.substr(start, sep == std::string::npos ? std::string::npos : sep - start));
+            name.erase(std::remove_if(name.begin(), name.end(), [](unsigned char c) { return std::isspace(c); }), name.end());
+            if (!name.empty() && seen.insert(name).second) out.push_back(name);
+            if (sep == std::string::npos) break;
+            start = sep + 1;
+        }
+    }
+    return out;
+}
+
+std::string dice_json(const DiceMap& dice) {
+    std::string body = "{";
+    bool first_bucket = true;
+    for (const auto& kv : dice) {
+        if (!first_bucket) body += ",";
+        first_bucket = false;
+        body += "\"" + json_escape(kv.first) + "\":" + json_string_array(kv.second);
+    }
+    body += "}";
+    return body;
 }
 
 std::string b64_encode(const std::string& in) {
@@ -123,7 +408,11 @@ int main(int argc, char** argv) {
     int port = 8086;
     if (const char* e = getenv("SA3_MODELS_DIR"))   g_models_dir   = e;
     if (const char* e = getenv("SA3_ADAPTERS_DIR")) g_adapters_dir = e;
+    if (const char* e = getenv("SA3_PROMPTS_DIR"))  g_prompts_dir  = e;
+    if (const char* e = getenv("SA3_SOURCE_LORAS_DIR")) g_source_loras_dir = e;
     if (g_models_dir.empty()) g_models_dir = "models";
+    if (g_prompts_dir.empty()) g_prompts_dir = "prompts";
+    if (g_source_loras_dir.empty()) g_source_loras_dir = "loras";
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         auto next = [&](const char* d){ return i + 1 < argc ? argv[++i] : d; };
@@ -133,8 +422,12 @@ int main(int argc, char** argv) {
         else if (a == "--encoding")     g_encoding = next("f16");
         else if (a == "--models-dir")   g_models_dir = next("models");
         else if (a == "--adapters-dir") g_adapters_dir = next("");
+        else if (a == "--prompts-dir")  g_prompts_dir = next("prompts");
+        else if (a == "--source-loras-dir") g_source_loras_dir = next("loras");
     }
     const std::string adir = g_adapters_dir.empty() ? g_models_dir : g_adapters_dir;
+    const std::string pdir = g_prompts_dir;
+    const std::string sldir = g_source_loras_dir;
 
     httplib::Server svr;
 
@@ -142,6 +435,61 @@ int main(int argc, char** argv) {
         const bool loaded = g_loaded.load();   // atomic: never blocks behind an in-flight generation
         std::string body = "{\"status\":\"ok\",\"model\":\"" + g_variant + "\",\"encoding\":\"" +
                            g_encoding + "\",\"loaded\":" + (loaded ? "true" : "false") + "}";
+        res.set_content(body, "application/json");
+    });
+
+    svr.Get("/loras", [&adir, &sldir](const httplib::Request&, httplib::Response& res) {
+        const std::vector<LoraEntry> loras = scan_loras(adir);
+        const std::vector<SourceLoraEntry> source_loras = scan_source_loras(sldir);
+        std::string body = "{\"success\":true,\"loras\":" + loras_json(loras)
+                         + ",\"source_loras\":" + source_loras_json(source_loras)
+                         + ",\"adapters_dir\":\"" + json_escape(adir)
+                         + "\",\"source_loras_dir\":\"" + json_escape(sldir)
+                         + "\",\"model_loaded\":" + (g_loaded.load() ? "true" : "false") + "}";
+        res.set_content(body, "application/json");
+    });
+
+    svr.Get("/prompts", [&pdir](const httplib::Request& req, httplib::Response& res) {
+        namespace fs = std::filesystem;
+        DiceMap dice;
+        int version = 1;
+        load_dice_file(fs::path(pdir) / "defaults.json", dice, &version);
+        if (dice.empty()) {
+            dice["generic"] = {};
+            dice["instrumental"] = {};
+            dice["drums"] = {};
+        }
+
+        const std::vector<std::string> selected = selected_lora_prompt_names(req);
+        std::vector<std::string> missing;
+        std::set<std::string> replaced;
+
+        for (const std::string& name : selected) {
+            DiceMap lora_dice;
+            if (!load_dice_file(fs::path(pdir) / (name + ".json"), lora_dice)) {
+                missing.push_back(name);
+                continue;
+            }
+
+            for (const auto& kv : lora_dice) {
+                if (!replaced.count(kv.first)) {
+                    dice[kv.first].clear();
+                    replaced.insert(kv.first);
+                }
+                std::set<std::string> seen;
+                for (const auto& existing : dice[kv.first]) seen.insert(lower_ascii(existing));
+                for (const auto& prompt : kv.second) add_unique_prompt(dice[kv.first], seen, prompt);
+            }
+        }
+
+        std::string body = "{\"success\":true,\"loras\":" + json_string_array(selected)
+                         + ",\"missing_loras\":" + json_string_array(missing)
+                         + ",\"available_loras\":" + json_string_array(prompt_pool_names(pdir))
+                         + ",\"prompts\":{\"version\":" + std::to_string(version)
+                         + ",\"dice\":" + dice_json(dice)
+                         + ",\"source\":{\"generic\":\""
+                         + json_escape(fs::exists(fs::path(pdir) / "defaults.json") ? "defaults.json" : "empty")
+                         + "\"}}}";
         res.set_content(body, "application/json");
     });
 
@@ -206,8 +554,7 @@ int main(int argc, char** argv) {
                 yyjson_val* sv = yyjson_obj_get(it, "strength");
                 float strength = sv && yyjson_is_num(sv) ? (float)yyjson_get_num(sv) : 1.0f;
                 if (name.empty()) continue;
-                std::string p = std::filesystem::exists(name) ? name
-                                : sa3::resolve_one(adir, "lora-" + name + "-", ".gguf");
+                std::string p = resolve_lora_path(adir, name);
                 if (p.empty()) { perr = "unknown lora '" + name + "'"; break; }
                 params.loras.push_back({p, strength});
             }
@@ -300,8 +647,8 @@ int main(int argc, char** argv) {
         res.set_content(body, "application/json");
     });
 
-    fprintf(stderr, "[sa3-server] http://%s:%d  model=%s/%s  models=%s  adapters=%s  (async /poll_status; frugal default)\n",
-            host.c_str(), port, g_variant.c_str(), g_encoding.c_str(), g_models_dir.c_str(), adir.c_str());
+    fprintf(stderr, "[sa3-server] http://%s:%d  model=%s/%s  models=%s  adapters=%s  source_loras=%s  prompts=%s  (async /poll_status; frugal default)\n",
+            host.c_str(), port, g_variant.c_str(), g_encoding.c_str(), g_models_dir.c_str(), adir.c_str(), sldir.c_str(), pdir.c_str());
     if (!svr.listen(host.c_str(), port)) {
         fprintf(stderr, "[sa3-server] failed to bind %s:%d\n", host.c_str(), port);
         return 1;
