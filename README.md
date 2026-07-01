@@ -1,8 +1,10 @@
 # stable-audio-3 in c++
 
-a portable c++/ggml port of stable audio 3 — prompt string → music, no pytorch in the loop.
-runs on cpu, cuda, vulkan, or metal; weights in f32 or f16. every component is validated against the
-pytorch reference at cosine similarity ~1.0.
+trying to make this as composable and extensible as i can without over-engineering it to much. my hope is that this might eventually replace the sa3 backend i already use in https://github.com/betweentwomidnights/gary-localhost-installer. 
+
+it might allow me to start unifying gary4local for mac and pc. 
+
+it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. i'll test that out shortly in a dead-simple app once we have the libsa3. 
 
 ## quickstart
 
