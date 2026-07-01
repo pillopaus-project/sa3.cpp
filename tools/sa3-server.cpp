@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -59,7 +60,8 @@ struct Job {
 std::mutex jobs_mtx;
 std::unordered_map<std::string, Job> jobs;
 
-std::string json_err(const std::string& msg) { return "{\"error\":\"" + msg + "\"}"; }
+std::string json_escape(const std::string& s);
+std::string json_err(const std::string& msg) { return "{\"error\":\"" + json_escape(msg) + "\"}"; }
 
 // minimal JSON string escaping (quotes/backslashes/control) for error text we splice into bodies
 std::string json_escape(const std::string& s) {
@@ -569,7 +571,13 @@ int main(int argc, char** argv) {
                 res.status = 400; res.set_content(json_err("init_path not found: " + init_path), "application/json"); return;
             }
             int ns = 0, nc = 0, sr = 0;
-            params.init_audio = sa3::read_wav_planar(init_path, ns, nc, sr);
+            try {
+                params.init_audio = sa3::read_wav_planar(init_path, ns, nc, sr);
+            } catch (const std::exception& e) {
+                res.status = 400;
+                res.set_content(json_err(std::string("invalid init_path WAV: ") + e.what()), "application/json");
+                return;
+            }
             params.init_n_samp = ns; params.init_n_ch = nc;
         }
 
