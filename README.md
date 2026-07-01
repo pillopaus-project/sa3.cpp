@@ -4,7 +4,7 @@ trying to make this as composable and extensible as i can without over-engineeri
 
 it might allow me to start unifying gary4local for mac and pc. 
 
-it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. i'll test that out shortly in a dead-simple app once we have the libsa3. 
+it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md). i'll test that out shortly in a dead-simple app now that we have the libsa3. 
 
 ## quickstart
 
