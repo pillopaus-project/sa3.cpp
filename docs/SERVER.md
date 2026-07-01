@@ -32,6 +32,19 @@ It binds to `127.0.0.1` by default (local only). The model loads lazily on the f
   "loras": [{"name": "kev", "strength": 1.0}, {"name": "keygen", "strength": 0.8}],
   "keep_models": false,          // default: frugal (free after each gen, reload next) — vst/daw-safe
 
+  // schedule headroom (text2music). default 6.0 leaves room so the model doesn't "end" the piece
+  // (full-energy tail -> good for continuation/looping); 0 lets it end (fade/silence tail):
+  "duration_padding_sec": 6.0,
+
+  // classifier-free guidance (all inert at cfg_scale=1.0, which is a single conditioned pass):
+  "cfg_scale": 1.0,              // >1 or <1 runs an extra unconditioned pass per step and guides
+  "negative_prompt": "low quality",
+  "cfg_rescale": 0.0,           // rescale guided output toward the conditioned std (scale_phi)
+  "cfg_interval_min": 0.0,      // apply CFG only when the step t is within [min, max]
+  "cfg_interval_max": 1.0,
+  "apg_scale": 1.0,             // 1.0 = full APG (orthogonal), 0.0 = vanilla CFG, else blend
+  "cfg_norm_threshold": 0.0,    // >0 clamps the guidance-delta L2 norm
+
   // sampling-schedule distribution shift (optional) — mirrors the official SA3 gradio selector.
   // default "LogSNR" reproduces the prior schedule exactly. dist_shift_params overrides the 4
   // per-type params (meaning depends on type); omit it to use that type's defaults:

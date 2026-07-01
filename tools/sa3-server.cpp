@@ -95,11 +95,21 @@ int main(int argc, char** argv) {
         if (yyjson_obj_get(root, "seconds"))                 // ~10.77 latent frames/sec (44100/4096)
             params.frames = (int)(D("seconds", 12.0) * 44100.0 / 4096.0 + 0.5);
         params.steps            = I("steps", 8);
-        params.seed             = (uint64_t)I("seed", 0);
+        const uint64_t seed_resolved = sa3::pick_seed(I("seed", 0));   // seed -1 => random
+        params.seed             = seed_resolved;
         params.keep_models      = B("keep_models", false);   // FRUGAL default
         params.init_noise_level = (float)D("init_noise_level", 0.85);
         params.inpaint_start    = (float)D("inpaint_start", -1.0);   // inpaint/continuation region (sec)
         params.inpaint_end      = (float)D("inpaint_end", -1.0);
+        params.duration_padding_sec = (float)D("duration_padding_sec", 6.0);   // text2music schedule headroom (0 = let it end)
+        // classifier-free guidance (all inert unless cfg_scale != 1.0)
+        params.negative_prompt   = S("negative_prompt", "");
+        params.cfg_scale         = (float)D("cfg_scale", 1.0);
+        params.cfg_rescale       = (float)D("cfg_rescale", 0.0);
+        params.apg_scale         = (float)D("apg_scale", 1.0);
+        params.cfg_norm_threshold= (float)D("cfg_norm_threshold", 0.0);
+        params.cfg_interval_min  = (float)D("cfg_interval_min", 0.0);
+        params.cfg_interval_max  = (float)D("cfg_interval_max", 1.0);
         // schedule warp: "dist_shift" type + its defaults, optionally overridden by a 4-number "dist_shift_params".
         params.dist_shift       = S("dist_shift", "LogSNR");
         sa3::dist_shift_defaults(params.dist_shift, params.ds_p1, params.ds_p2, params.ds_p3, params.ds_p4);
@@ -146,6 +156,7 @@ int main(int argc, char** argv) {
         if (!ensure_loaded(err)) { res.status = 500; res.set_content(json_err(err), "application/json"); return; }
         try {
             sa3::GenResult r = g_pipe->generate(params);
+            res.set_header("X-Seed", std::to_string(seed_resolved));   // the seed used (resolved if -1)
             res.set_content(sa3::wav_planar_bytes(r.samples.data(), r.n_samp, r.n_ch, r.sample_rate), "audio/wav");
         } catch (const std::exception& e) {
             res.status = 500; res.set_content(json_err(e.what()), "application/json");

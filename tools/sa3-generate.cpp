@@ -75,9 +75,13 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string,float>> lora_specs;   // (gguf, strength) applied in flag order
     bool keep_models = false;        // --keep-models: don't free TE/DIT early (keep all resident)
     int decode_chunk_size = 0, decode_overlap = 32;     // outer SAME-L decode tiling; 0 = monolithic
-    int frames = 128, steps = 8; uint64_t seed = 0;
+    int frames = 128, steps = 8; long long seed = 0;   // seed < 0 (e.g. -1) => random (resolved below)
     std::string dist_shift = "LogSNR";                  // schedule warp: LogSNR|Flux|Full|None
     float ds_p1 = 2000.0f, ds_p2 = -6.2f, ds_p3 = 0.0f, ds_p4 = 2.0f;   // LogSNR defaults (per-type, see --dist-shift)
+    float duration_padding_sec = 6.0f;                  // text2music schedule headroom (0 = let the model end the piece)
+    std::string negative_prompt;                        // CFG negative prompt (only used when cfg_scale != 1)
+    float cfg_scale = 1.0f, cfg_rescale = 0.0f, apg_scale = 1.0f, cfg_norm_threshold = 0.0f;
+    float cfg_interval_min = 0.0f, cfg_interval_max = 1.0f;
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--model")  && i+1 < argc) model_variant = argv[++i];
         else if (!strcmp(argv[i], "--encoding") && i+1 < argc) encoding = argv[++i];
@@ -91,7 +95,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--prompt") && i+1 < argc) prompt = argv[++i];
         else if (!strcmp(argv[i], "--frames") && i+1 < argc) frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--steps")  && i+1 < argc) steps = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--seed")   && i+1 < argc) seed = strtoull(argv[++i], nullptr, 10);
+        else if (!strcmp(argv[i], "--seed")   && i+1 < argc) seed = strtoll(argv[++i], nullptr, 10);
         else if (!strcmp(argv[i], "--out")    && i+1 < argc) wav_p = argv[++i];
         else if (!strcmp(argv[i], "--init")   && i+1 < argc) init_p = argv[++i];
         else if (!strcmp(argv[i], "--init-noise-level") && i+1 < argc) init_noise_level = (float)atof(argv[++i]);
@@ -110,6 +114,17 @@ int main(int argc, char** argv) {
             if (sscanf(argv[++i], "%f,%f,%f,%f", &ds_p1, &ds_p2, &ds_p3, &ds_p4) != 4) {
                 fprintf(stderr, "--dist-shift-params expects p1,p2,p3,p4 (meaning depends on --dist-shift)\n");
                 return 1;
+            }
+        }
+        else if (!strcmp(argv[i], "--duration-padding") && i+1 < argc) duration_padding_sec = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--negative-prompt") && i+1 < argc) negative_prompt = argv[++i];
+        else if (!strcmp(argv[i], "--cfg-scale") && i+1 < argc) cfg_scale = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--cfg-rescale") && i+1 < argc) cfg_rescale = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--apg-scale") && i+1 < argc) apg_scale = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--cfg-norm-threshold") && i+1 < argc) cfg_norm_threshold = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--cfg-interval") && i+1 < argc) {
+            if (sscanf(argv[++i], "%f,%f", &cfg_interval_min, &cfg_interval_max) != 2) {
+                fprintf(stderr, "--cfg-interval expects min,max\n"); return 1;
             }
         }
         else if (!strcmp(argv[i], "--chunked-decode")) decode_chunk_size = 128;
@@ -158,7 +173,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "usage: sa3-generate (--model medium|small-music|small-sfx [--encoding f16|f32] [--models-dir DIR]\n"
                         "                     | --tok <f> --t5 <f> --cond <f> --dit <f> --same <f>)\n"
                         "                     --prompt \"...\" [--lora NAME|PATH [--lora-strength S]]... [--frames N] [--steps N] [--seed S]\n"
-                        "                     [--dist-shift LogSNR|Flux|Full|None [--dist-shift-params p1,p2,p3,p4]] [--out song.wav]\n");
+                        "                     [--dist-shift LogSNR|Flux|Full|None [--dist-shift-params p1,p2,p3,p4]] [--duration-padding SEC]\n"
+                        "                     [--cfg-scale S [--negative-prompt \"...\"] [--cfg-rescale R] [--cfg-interval min,max] [--apg-scale A] [--cfg-norm-threshold T]] [--out song.wav]\n");
         return 1;
     }
     if (decode_chunk_size < 0 || decode_overlap < 0 ||
@@ -176,7 +192,8 @@ int main(int argc, char** argv) {
     params.prompt            = prompt;
     params.frames            = frames;
     params.steps             = steps;
-    params.seed              = seed;
+    const uint64_t seed_resolved = sa3::pick_seed(seed);   // -1 => random
+    params.seed              = seed_resolved;
     params.init_noise_level  = init_noise_level;
     params.inpaint_start     = inpaint_start;
     params.inpaint_end       = inpaint_end;
@@ -184,6 +201,11 @@ int main(int argc, char** argv) {
     params.decode_overlap    = decode_overlap;
     params.dist_shift        = dist_shift;
     params.ds_p1 = ds_p1; params.ds_p2 = ds_p2; params.ds_p3 = ds_p3; params.ds_p4 = ds_p4;
+    params.duration_padding_sec = duration_padding_sec;
+    params.negative_prompt   = negative_prompt;
+    params.cfg_scale = cfg_scale; params.cfg_rescale = cfg_rescale; params.apg_scale = apg_scale;
+    params.cfg_norm_threshold = cfg_norm_threshold;
+    params.cfg_interval_min = cfg_interval_min; params.cfg_interval_max = cfg_interval_max;
     params.keep_models       = keep_models;
     for (auto& ls : lora_specs) params.loras.push_back(ls);
 
@@ -201,7 +223,7 @@ int main(int argc, char** argv) {
         double tp = sa3::wall_time_s();
         sa3::write_wav_planar(wav_p, r.samples.data(), r.n_samp, r.n_ch, r.sample_rate);
         sa3::profile_log(prof, "write_wav", sa3::wall_time_s() - tp);
-        printf("wrote %s  (%.2fs, seed %llu)\n", wav_p, (float)r.n_samp / r.sample_rate, (unsigned long long)seed);
+        printf("wrote %s  (%.2fs, seed %llu)\n", wav_p, (float)r.n_samp / r.sample_rate, (unsigned long long)seed_resolved);
     } catch (const std::exception& e) {
         fprintf(stderr, "error: %s\n", e.what());
         return 1;

@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <random>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -109,6 +110,65 @@ inline void dist_shift_defaults(const std::string& type, float& p1, float& p2, f
     else if (type == "Full") { p1 = 0.5f;   p2 = 1.15f;   p3 = 256.0f; p4 = 4096.0f; } // HF SA3 config (all variants)
     else if (type == "None") { p1 = p2 = p3 = p4 = 0.0f; }
     else                     { p1 = 2000.0f; p2 = -6.2f;  p3 = 0.0f;   p4 = 2.0f;   } // LogSNR (medium, rate=0)
+}
+
+// Host classifier-free-guidance combine for the rf_denoiser objective, matching models/dit.py
+// 579-619 (the scalar/no-padding-mask case). v_cond/v_uncond are the two velocity predictions and
+// x is the current latent; sigma is the step's t. Writes the guided velocity to v_out. Layout is
+// [io, T] flattened as idx = t*io + c (channel fastest). Callers skip this when cfg_scale == 1.0.
+//   apg_scale: 1.0 = full APG (orthogonal only), 0.0 = vanilla CFG (full diff), else blend.
+//   cfg_norm_threshold: >0 clamps the guidance-delta L2 norm. scale_phi: CFG-rescale toward cond std.
+inline void cfg_combine(std::vector<float>& v_out,
+                        const std::vector<float>& v_cond, const std::vector<float>& v_uncond,
+                        const std::vector<float>& x, int N, int io, int T, float sigma,
+                        float cfg_scale, float apg_scale, float scale_phi, float cfg_norm_threshold) {
+    std::vector<float> cond_den(N), diff(N);
+    for (int j = 0; j < N; j++) {
+        cond_den[j] = x[j] - v_cond[j] * sigma;
+        diff[j]     = (v_uncond[j] - v_cond[j]) * sigma;      // == cond_denoised - uncond_denoised
+    }
+    if (cfg_norm_threshold > 0.0f) {                          // clamp ||diff|| to the threshold
+        double s = 0; for (int j = 0; j < N; j++) s += (double)diff[j]*diff[j];
+        float dn = (float)std::sqrt(s);
+        if (dn > cfg_norm_threshold) { float sf = cfg_norm_threshold / dn; for (int j = 0; j < N; j++) diff[j] *= sf; }
+    }
+    std::vector<float> cfg_diff(N);
+    if (apg_scale == 0.0f) {
+        cfg_diff = diff;                                      // vanilla CFG
+    } else {                                                 // APG: project diff off the cond_denoised direction
+        double cn2 = 0; for (int j = 0; j < N; j++) cn2 += (double)cond_den[j]*cond_den[j];
+        double dot = 0; for (int j = 0; j < N; j++) dot += (double)diff[j]*cond_den[j];
+        float proj = cn2 > 1e-16 ? (float)(dot / cn2) : 0.0f; // <diff,cond_hat>/||cond_den|| coefficient
+        for (int j = 0; j < N; j++) {
+            float orth = diff[j] - proj * cond_den[j];
+            cfg_diff[j] = (apg_scale == 1.0f) ? orth : apg_scale*orth + (1.0f - apg_scale)*diff[j];
+        }
+    }
+    for (int j = 0; j < N; j++) {
+        float cfg_den = cond_den[j] + (cfg_scale - 1.0f) * cfg_diff[j];
+        v_out[j] = (x[j] - cfg_den) / sigma;
+    }
+    if (scale_phi != 0.0f) {                                 // CFG rescale, per-time std over channels
+        for (int t = 0; t < T; t++) {
+            const int base = t*io;
+            double c1=0,c2=0,o1=0,o2=0;
+            for (int c = 0; c < io; c++) { float a=v_cond[base+c], b=v_out[base+c]; c1+=a; c2+=(double)a*a; o1+=b; o2+=(double)b*b; }
+            float cstd = (float)std::sqrt(std::max(0.0, c2/io - (c1/io)*(c1/io)));
+            float ostd = (float)std::sqrt(std::max(0.0, o2/io - (o1/io)*(o1/io)));
+            float r = ostd > 1e-8f ? cstd/ostd : 1.0f;
+            for (int c = 0; c < io; c++) { float b=v_out[base+c]; v_out[base+c] = scale_phi*(b*r) + (1.0f - scale_phi)*b; }
+        }
+    }
+}
+
+// Resolve a requested seed to a concrete one: any negative value (the -1 "random" sentinel, matching
+// the official SA3 / gary convention) draws a fresh seed. The CLI/server should print the returned
+// value so a good result stays reproducible.
+inline uint64_t pick_seed(long long requested) {
+    if (requested >= 0) return (uint64_t)requested;
+    std::random_device rd;
+    return ((uint64_t)rd() << 32) ^ (uint64_t)rd()
+         ^ (uint64_t)std::chrono::high_resolution_clock::now().time_since_epoch().count();
 }
 
 inline double wall_time_s() {
@@ -227,6 +287,23 @@ struct GenParams {
     float ds_p2 = -6.2f;    // LogSNR:anchor_logsnr  Flux:max_length  Full:max_shift
     float ds_p3 = 0.0f;     // LogSNR:rate           Flux:alpha_min   Full:min_length
     float ds_p4 = 2.0f;     // LogSNR:logsnr_end     Flux:alpha_max   Full:max_length
+
+    // Schedule headroom (text2music only). Generate a (frames + duration_padding) canvas, condition
+    // seconds_total + the dist-shift schedule on the REQUESTED length, then truncate back to frames.
+    // Matches the official SA3 default (6.0). 0 lets the model "end" the piece (silence/fade tail);
+    // >0 leaves room so the kept region has no ending — the basis for continuation / loop generation.
+    float duration_padding_sec = 6.0f;
+
+    // Classifier-free guidance (matches dit.py:479-619). cfg_scale==1.0 => a single conditioned pass
+    // (no CFG, byte-identical to before). Otherwise each step also runs an UNconditioned pass (negative
+    // prompt if given, else null) and guides. The knobs only bite when cfg_scale != 1.0.
+    std::string negative_prompt;
+    float cfg_scale        = 1.0f;    // guidance strength; 1.0 = off
+    float cfg_rescale      = 0.0f;    // scale_phi: rescale the guided output toward the conditioned std
+    float cfg_interval_min = 0.0f;    // only apply CFG when the step t is within [min, max]
+    float cfg_interval_max = 1.0f;
+    float apg_scale        = 1.0f;    // 1.0 = full APG (orthogonal), 0.0 = vanilla CFG, else blend
+    float cfg_norm_threshold = 0.0f;  // >0 clamps the guidance-delta L2 norm
 
     // Long-audio decode tiling; 0 = monolithic (the sliding-window decoder is already linear).
     int decode_chunk_size = 0;
@@ -352,6 +429,12 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     const int decode_chunk_size = params.decode_chunk_size, decode_overlap = params.decode_overlap;
     const std::string& dist_shift = params.dist_shift;
     const float ds_p1 = params.ds_p1, ds_p2 = params.ds_p2, ds_p3 = params.ds_p3, ds_p4 = params.ds_p4;
+    const float duration_padding_sec = params.duration_padding_sec;
+    const std::string& negative_prompt = params.negative_prompt;
+    const float cfg_scale = params.cfg_scale, cfg_rescale = params.cfg_rescale;
+    const float cfg_interval_min = params.cfg_interval_min, cfg_interval_max = params.cfg_interval_max;
+    const float apg_scale = params.apg_scale, cfg_norm_threshold = params.cfg_norm_threshold;
+    const bool do_cfg = (cfg_scale != 1.0f);
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);
     const bool has_init = !params.init_audio.empty();
 
@@ -408,7 +491,21 @@ inline GenResult Pipeline::generate(const GenParams& params) {
                inpaint ? "inpaint" : "audio2audio", (float)n_samp/44100.0f, frames, (float)init_L/44100.0f);
     }
 
-    const int T = frames, max_len = (int)TE.u32("t5g.max_length");
+    // text2music: generate a (frames + duration_padding) canvas so the model isn't forced to "end"
+    // the piece in the kept region, then truncate to `frames` at the very end. eff_frames (= the
+    // requested length) drives seconds_total conditioning + the dist-shift schedule (upstream's
+    // use_effective_length_for_schedule); T (the canvas) drives all latent/DiT/decode sizing. a2a/
+    // inpaint derive frames from the init audio, so they keep pad=0.
+    const int max_len = (int)TE.u32("t5g.max_length");
+    const int eff_frames = frames;
+    int pad_frames = 0;
+    if (!has_init && duration_padding_sec > 0.0f) {
+        const int per = sc.patch_size * sc.output_seg;          // audio samples per latent frame
+        const int mult = sc.chunk ? 2 : 1;                      // SAME-S needs an even latent length
+        int pf = (int)(duration_padding_sec * 44100.0f / (float)per + 0.5f);
+        pad_frames = ((pf + mult - 1) / mult) * mult;
+    }
+    const int T = eff_frames + pad_frames;
     const int cond_dim = tc.dim, ctx_len = max_len + 1;
     const int N = T * dc.io;
     if (same_l_flash_attn) {
@@ -422,16 +519,23 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     if (inpaint && (!has_init || dc.local_dim <= 0))
         throw std::runtime_error("inpaint needs init audio + a DiT with local-cond weights (dit.local_dim>0)");
 
-    // ---------- tokenize + pad ----------
-    std::vector<int32_t> enc = tok_.encode(prompt);
-    const int L = std::min((int)enc.size(), max_len);
-    std::vector<int32_t> ids(max_len, tok_.pad_id), attn(max_len, 0);
-    for (int i = 0; i < L; i++) { ids[i] = enc[i]; attn[i] = 1; }
-    printf("prompt: \"%s\"  (%d tokens, ~%.2fs)\n", prompt.c_str(), L, (float)T * (sc.patch_size * sc.output_seg) / 44100.0f);
+    // ---------- tokenize + T5Gemma encode (positive, and negative for CFG) ----------
+    auto tokenize = [&](const std::string& p, std::vector<int32_t>& ids, std::vector<int32_t>& attn) {
+        std::vector<int32_t> e = tok_.encode(p);
+        const int l = std::min((int)e.size(), max_len);
+        ids.assign(max_len, tok_.pad_id); attn.assign(max_len, 0);
+        for (int i = 0; i < l; i++) { ids[i] = e[i]; attn[i] = 1; }
+        return l;
+    };
+    std::vector<int32_t> ids, attn;
+    const int L = tokenize(prompt, ids, attn);
+    printf("prompt: \"%s\"  (%d tokens, ~%.2fs)\n", prompt.c_str(), L, (float)eff_frames * (sc.patch_size * sc.output_seg) / 44100.0f);
+    if (pad_frames) printf("  + %.2fs schedule headroom (canvas T=%d, truncated back to %d)\n",
+                           (float)pad_frames * (sc.patch_size * sc.output_seg) / 44100.0f, T, eff_frames);
 
-    // ---------- T5Gemma encode ----------
-    std::vector<float> hidden;
-    {
+    // Encode one prompt's token ids -> T5Gemma hidden [cond_dim*max_len].
+    auto t5_encode = [&](const std::vector<int32_t>& ids_v, const std::vector<int32_t>& attn_v) {
+        std::vector<float> hidden((size_t)cond_dim*max_len);
         const double t_t5_total = wall_time_s();
         double tp = wall_time_s();
         ggml_init_params ip = { (size_t)256*1024*1024, nullptr, true };
@@ -450,31 +554,29 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         ggml_gallocr_alloc_graph(alloc, gf);
         profile_log(prof, "t5_alloc", wall_time_s() - tp);
         tp = wall_time_s();
-        ggml_backend_tensor_set(ids_t, ids.data(), 0, max_len*sizeof(int32_t));
+        ggml_backend_tensor_set(ids_t, ids_v.data(), 0, max_len*sizeof(int32_t));
         std::vector<int32_t> pos(max_len); for (int i = 0; i < max_len; i++) pos[i] = i;
         ggml_backend_tensor_set(pos_t, pos.data(), 0, max_len*sizeof(int32_t));
         std::vector<float> mb((size_t)max_len*max_len);
         for (int q = 0; q < max_len; q++) for (int k = 0; k < max_len; k++)
-            mb[(size_t)q*max_len+k] = attn[k] ? 0.0f : -INFINITY;
+            mb[(size_t)q*max_len+k] = attn_v[k] ? 0.0f : -INFINITY;
         ggml_backend_tensor_set(mask_t, mb.data(), 0, mb.size()*sizeof(float));
         profile_log(prof, "t5_upload", wall_time_s() - tp);
         tp = wall_time_s();
         ggml_backend_graph_compute(TE.backend, gf);
         profile_log(prof, "t5_compute", wall_time_s() - tp);
         tp = wall_time_s();
-        hidden.resize((size_t)cond_dim*max_len);
         ggml_backend_tensor_get(h, hidden.data(), 0, hidden.size()*sizeof(float));
         profile_log(prof, "t5_download", wall_time_s() - tp);
         ggml_gallocr_free(alloc); ggml_free(ctx);
         profile_log(prof, "t5_total", wall_time_s() - t_t5_total);
-    }
+        return hidden;
+    };
 
-    // ---------- conditioning assembly (host) ----------
+    // ---------- conditioning assembly (host): [T5 hidden (pad-substituted) | secs embed] ----------
     double t0 = wall_time_s();
     std::vector<float> pad_emb = tensor_to_host(CD, "te.padding_embedding");
-    for (int p = 0; p < max_len; p++)
-        if (!attn[p]) memcpy(&hidden[(size_t)p*cond_dim], pad_emb.data(), cond_dim*sizeof(float));
-    const float secs = (float)T * (sc.patch_size * sc.output_seg) / 44100.0f;
+    const float secs = (float)eff_frames * (sc.patch_size * sc.output_seg) / 44100.0f;
     const float smin = CD.f32("t5g.secs_min"), smax = CD.f32("t5g.secs_max");
     const int sdim = (int)CD.u32("t5g.secs_dim");
     float sclamp = secs < smin ? smin : (secs > smax ? smax : secs);
@@ -488,10 +590,27 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         for (int i = 0; i < sdim; i++) acc += ef[i] * sw[(size_t)d*sdim + i];
         secs_embed[d] = acc;
     }
-    std::vector<float> crossb((size_t)cond_dim*ctx_len);
-    memcpy(crossb.data(), hidden.data(), hidden.size()*sizeof(float));
-    memcpy(&crossb[(size_t)cond_dim*max_len], secs_embed.data(), cond_dim*sizeof(float));
+    // hidden (pad-substituted) + appended secs token -> cross-attn conditioning [cond_dim*ctx_len].
+    auto assemble_cross = [&](std::vector<float> hidden, const std::vector<int32_t>& attn_v) {
+        for (int p = 0; p < max_len; p++)
+            if (!attn_v[p]) memcpy(&hidden[(size_t)p*cond_dim], pad_emb.data(), cond_dim*sizeof(float));
+        std::vector<float> cb((size_t)cond_dim*ctx_len);
+        memcpy(cb.data(), hidden.data(), (size_t)cond_dim*max_len*sizeof(float));
+        memcpy(&cb[(size_t)cond_dim*max_len], secs_embed.data(), cond_dim*sizeof(float));
+        return cb;
+    };
+    std::vector<float> crossb = assemble_cross(t5_encode(ids, attn), attn);
     std::vector<float>& globb = secs_embed;
+    // CFG: unconditioned cross-attn = the negative prompt (if given), else zeros (dit.py null_embed).
+    std::vector<float> uncond_crossb;
+    if (do_cfg) {
+        if (!negative_prompt.empty()) {
+            std::vector<int32_t> nids, nattn; tokenize(negative_prompt, nids, nattn);
+            uncond_crossb = assemble_cross(t5_encode(nids, nattn), nattn);
+        } else {
+            uncond_crossb.assign((size_t)cond_dim*ctx_len, 0.0f);
+        }
+    }
     if (const char* dc_dir = getenv("SA3_DUMP_COND")) {
         FILE* f1 = fopen((std::string(dc_dir)+"/gen_cross.f32").c_str(), "wb");
         fwrite(crossb.data(), sizeof(float), crossb.size(), f1); fclose(f1);
@@ -508,7 +627,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         float t_in = sigma_max * (1.0f - (float)i / steps);
         sigmas[i] = (i == 0) ? sigma_max
                   : (i == steps) ? 0.0f
-                  : sa3::dist_shift_warp(dist_shift, t_in, (int)T, ds_p1, ds_p2, ds_p3, ds_p4);
+                  : sa3::dist_shift_warp(dist_shift, t_in, eff_frames, ds_p1, ds_p2, ds_p3, ds_p4);
     }
 
     // ---------- audio2audio: encode init audio -> latent z_init [latent, T] ----------
@@ -601,7 +720,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     profile_log(prof, "dit_alloc", wall_time_s() - tp_dit);
     std::vector<int32_t> posb(S); for (int i = 0; i < S; i++) posb[i] = i;
     const float one = 1.0f;
-    std::vector<float> tf, vbuf(N);
+    std::vector<float> tf, vbuf(N), vbuf_unc, vcfg;   // vbuf = conditioned velocity; vcfg = guided (CFG)
     double dit_upload = 0.0, dit_compute = 0.0, dit_download_update = 0.0;
     for (int i = 0; i < steps; i++) {
         double ts = wall_time_s();
@@ -618,14 +737,38 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         ggml_backend_graph_compute(DIT.backend, gf_dit);
         dit_compute += wall_time_s() - ts;
         ts = wall_time_s();
-        ggml_backend_tensor_get(vel, vbuf.data(), 0, N*sizeof(float));
+        ggml_backend_tensor_get(vel, vbuf.data(), 0, N*sizeof(float));   // conditioned velocity
         const float tcur = sigmas[i], tnext = sigmas[i+1];
+        const float* v_use = vbuf.data();
+        // classifier-free guidance: run the unconditioned pass and combine (gated to the cfg interval)
+        if (do_cfg && tcur >= cfg_interval_min && tcur <= cfg_interval_max) {
+            dit_download_update += wall_time_s() - ts;
+            ts = wall_time_s();
+            // re-upload every input (the graph may consume/reuse input buffers between computes),
+            // swapping only the cross-attn cond to the unconditioned branch.
+            ggml_backend_tensor_set(x_in,  host_x.data(), 0, N*sizeof(float));
+            ggml_backend_tensor_set(tfeat, tf.data(), 0, tf.size()*sizeof(float));
+            ggml_backend_tensor_set(glob,  globb.data(), 0, globb.size()*sizeof(float));
+            ggml_backend_tensor_set(pos_d, posb.data(), 0, posb.size()*sizeof(int32_t));
+            ggml_backend_tensor_set(ones,  &one, 0, sizeof(float));
+            if (local) ggml_backend_tensor_set(local, localb.data(), 0, localb.size()*sizeof(float));
+            ggml_backend_tensor_set(cross, uncond_crossb.data(), 0, uncond_crossb.size()*sizeof(float));
+            ggml_backend_graph_compute(DIT.backend, gf_dit);
+            dit_compute += wall_time_s() - ts;
+            ts = wall_time_s();
+            vbuf_unc.resize(N); vcfg.resize(N);
+            ggml_backend_tensor_get(vel, vbuf_unc.data(), 0, N*sizeof(float));
+            sa3::cfg_combine(vcfg, vbuf, vbuf_unc, host_x, N, dc.io, T, tcur,
+                             cfg_scale, apg_scale, cfg_rescale, cfg_norm_threshold);
+            v_use = vcfg.data();
+        }
         for (int j = 0; j < N; j++) {
-            float denoised = host_x[j] - tcur * vbuf[j];
+            float denoised = host_x[j] - tcur * v_use[j];
             host_x[j] = (1.0f - tnext) * denoised + tnext * stepnoise[(size_t)i*N + j];
         }
         dit_download_update += wall_time_s() - ts;
-        printf("  step %d/%d  t=%.4f\n", i+1, steps, tcur);
+        printf("  step %d/%d  t=%.4f%s\n", i+1, steps, tcur,
+               (do_cfg && tcur >= cfg_interval_min && tcur <= cfg_interval_max) ? "  (cfg)" : "");
     }
     profile_log(prof, "dit_upload", dit_upload);
     profile_log(prof, "dit_compute", dit_compute);
@@ -772,9 +915,18 @@ inline GenResult Pipeline::generate(const GenParams& params) {
 
     if (!keep_models) { AE.free(); nets_resident_ = false; }   // frugal: free everything -> reload next call
 
+    // truncate the padded canvas back to the requested length (planar -> compact each channel)
+    const int out_n_samp = eff_frames * sc.patch_size * sc.output_seg;
+    if (out_n_samp < n_samp) {
+        std::vector<float> tr((size_t)out_n_samp * n_ch);
+        for (int c = 0; c < n_ch; c++)
+            memcpy(&tr[(size_t)c*out_n_samp], &ab[(size_t)c*n_samp], (size_t)out_n_samp*sizeof(float));
+        ab = std::move(tr);
+    }
+
     GenResult r;
     r.samples = std::move(ab);
-    r.n_samp = n_samp;
+    r.n_samp = out_n_samp < n_samp ? out_n_samp : n_samp;
     r.n_ch = n_ch;
     r.sample_rate = 44100;
     return r;
