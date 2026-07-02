@@ -16,6 +16,7 @@
 #include "gguf_model.h"
 
 #include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -193,7 +194,7 @@ inline LoraStack apply_loras_host(GgufModel& base, std::vector<LoraAdapter>& ada
                 for (int i = 0; i < in; i++) coln[i] = std::sqrt(coln[i]) + 1e-12f;
                 for (int o = 0; o < out; o++) for (int i = 0; i < in; i++) w[(size_t)o*in+i] = magc[i]*inter[(size_t)o*in+i]/coln[i];
             } else {
-                fprintf(stderr, "[lora] unknown adapter_type '%s'\n", ty.c_str()); exit(1);
+                throw std::runtime_error("[lora] unknown adapter_type '" + ty + "'");
             }
         }
         write_from_f32(W0, w);                                               // write W_eff back over W0 (in place)
