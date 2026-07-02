@@ -302,6 +302,11 @@ struct Progress {
     float fraction;      // overall progress in [0,1]
 };
 
+inline void throw_if_cancelled(const std::function<bool()>& should_cancel) {
+    if (should_cancel && should_cancel())
+        throw std::runtime_error("generation cancelled");
+}
+
 // One generation request. Defaults reproduce the CLI's text2music defaults.
 struct GenParams {
     std::string prompt;
@@ -370,6 +375,10 @@ struct GenParams {
     // Optional progress hook (transport-agnostic: a server can poll it or push SSE). Called on the
     // generate() thread, one tick per sampling step + decode; see Progress for the ready fraction.
     std::function<void(const Progress&)> on_progress;
+
+    // Optional cooperative cancellation hook. It is checked between expensive ggml graph runs and
+    // chunk boundaries; an in-flight backend graph still runs to its next safe return point.
+    std::function<bool()> should_cancel;
 };
 
 struct GenResult {
@@ -466,7 +475,9 @@ inline Pipeline& Pipeline::operator=(Pipeline&& o) noexcept {
 
 inline GenResult Pipeline::generate(const GenParams& params) {
     const bool prof = profile_enabled();
+    throw_if_cancelled(params.should_cancel);
     ensure_nets_loaded();   // reload anything a prior frugal (keep_models=false) call freed
+    throw_if_cancelled(params.should_cancel);
 
     // aliases so the moved body reads exactly like the original CLI generation code
     GgufModel& TE = TE_; GgufModel& DIT = DIT_; GgufModel& AE = AE_;
@@ -495,6 +506,20 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     const bool do_cfg = (cfg_scale != 1.0f);
     const bool inpaint = (inpaint_start >= 0.0f || inpaint_end >= 0.0f);
     const bool has_init = !params.init_audio.empty();
+    auto release_all_for_frugal_cancel = [&]() {
+        if (!keep_models) {
+            TE.free();
+            DIT.free();
+            AE.free();
+            if (CD_) CD_->free();
+            dit_loras_.clear();
+            nets_resident_ = false;
+        }
+    };
+    auto throw_cancelled_after_frugal_cleanup = [&]() {
+        release_all_for_frugal_cancel();
+        throw std::runtime_error("generation cancelled");
+    };
     if (encode_chunk_size < 0 || encode_overlap < 0 ||
         (encode_chunk_size > 0 && encode_overlap >= encode_chunk_size))
         throw std::runtime_error("invalid encode_chunk_size/encode_overlap");
@@ -518,6 +543,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     // Only reload + re-apply when this request's set differs from what's already baked into the DiT
     // (so resident back-to-back requests with the SAME adapters skip the work; a change pays a reload).
     if (dit_loras_ != params.loras) {
+        throw_if_cancelled(params.should_cancel);
         if (!dit_loras_.empty()) {           // DiT carries a prior request's adapters -> reload a clean base
             DIT.free();
             DIT_ = load_gguf(paths_.dit.c_str(), backend_);
@@ -533,6 +559,8 @@ inline GenResult Pipeline::generate(const GenParams& params) {
                        adapters[i].type.c_str(), adapters[i].strength);
         }
         dit_loras_ = params.loras;
+        if (params.should_cancel && params.should_cancel())
+            throw_cancelled_after_frugal_cleanup();
     }
 
     // ---------- init audio: pad + derive output T (overrides params.frames) ----------
@@ -606,6 +634,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     printf("prompt: \"%s\"  (%d tokens, ~%.2fs)\n", prompt.c_str(), L, (float)eff_frames * (sc.patch_size * sc.output_seg) / 44100.0f);
     if (pad_frames) printf("  + %.2fs schedule headroom (canvas T=%d, truncated back to %d)\n",
                            (float)pad_frames * (sc.patch_size * sc.output_seg) / 44100.0f, T, eff_frames);
+    throw_if_cancelled(params.should_cancel);
 
     // Encode one prompt's token ids -> T5Gemma hidden [cond_dim*max_len].
     auto t5_encode = [&](const std::vector<int32_t>& ids_v, const std::vector<int32_t>& attn_v) {
@@ -674,6 +703,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         return cb;
     };
     std::vector<float> crossb = assemble_cross(t5_encode(ids, attn), attn);
+    throw_if_cancelled(params.should_cancel);
     std::vector<float>& globb = secs_embed;
     // CFG: unconditioned cross-attn = the negative prompt (if given), else zeros (dit.py null_embed).
     std::vector<float> uncond_crossb;
@@ -681,6 +711,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         if (!negative_prompt.empty()) {
             std::vector<int32_t> nids, nattn; tokenize(negative_prompt, nids, nattn);
             uncond_crossb = assemble_cross(t5_encode(nids, nattn), nattn);
+            throw_if_cancelled(params.should_cancel);
         } else {
             uncond_crossb.assign((size_t)cond_dim*ctx_len, 0.0f);
         }
@@ -770,9 +801,11 @@ inline GenResult Pipeline::generate(const GenParams& params) {
 
         if (params.on_progress) params.on_progress({"encoding", 0, can_chunk_encode ? 1 : 1, 0.02f});
         if (!can_chunk_encode) {
+            throw_if_cancelled(params.should_cancel);
             EncodeGraph eg = build_encode_graph(T);
             run_encode_graph(eg, init_audio.data(), z_init);
             free_encode_graph(eg);
+            throw_if_cancelled(params.should_cancel);
             if (params.on_progress) params.on_progress({"encoding", 1, 1, 0.1f});
         } else {
             // Mirrors stable_audio_3.models.autoencoders encode_audio/decode_audio chunk stitching:
@@ -784,7 +817,9 @@ inline GenResult Pipeline::generate(const GenParams& params) {
             EncodeGraph eg = build_encode_graph(encode_chunk_size);
             std::vector<float> audio_chunk((size_t)eg.n_samp * eg.n_ch);
             std::vector<float> zchunk;
+            bool cancelled = false;
             for (size_t i = 0; i < tiles.size(); i++) {
+                if (params.should_cancel && params.should_cancel()) { cancelled = true; break; }
                 const ChunkTile& tl = tiles[i];   // encode is native latent-frame: no stride scaling
                 const int sample_st = tl.src * ds;
                 for (int c = 0; c < eg.n_ch; c++)
@@ -802,8 +837,11 @@ inline GenResult Pipeline::generate(const GenParams& params) {
                 if (params.on_progress)
                     params.on_progress({"encoding", (int)(i+1), (int)tiles.size(),
                                         0.02f + 0.08f * (float)(i+1) / (float)tiles.size()});
+                if (params.should_cancel && params.should_cancel()) { cancelled = true; break; }
             }
             free_encode_graph(eg);
+            if (cancelled)
+                throw_cancelled_after_frugal_cleanup();
         }
     }
 
@@ -833,7 +871,9 @@ inline GenResult Pipeline::generate(const GenParams& params) {
                f0, f1, T, f0 * (float)ds / 44100.0f, f1 * (float)ds / 44100.0f);
     }
 
-    if (!keep_models) TE.free();
+    if (!keep_models) { TE.free(); if (CD_) CD_->free(); }
+    if (params.should_cancel && params.should_cancel())
+        throw_cancelled_after_frugal_cleanup();
 
     // ---------- DiT ping-pong ----------
     const int S = dc.mem_tokens + T;
@@ -863,7 +903,9 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     const float one = 1.0f;
     std::vector<float> tf, vbuf(N), vbuf_unc, vcfg;   // vbuf = conditioned velocity; vcfg = guided (CFG)
     double dit_upload = 0.0, dit_compute = 0.0, dit_download_update = 0.0;
+    bool dit_cancelled = false;
     for (int i = 0; i < steps; i++) {
+        if (params.should_cancel && params.should_cancel()) { dit_cancelled = true; break; }
         double ts = wall_time_s();
         ggml_backend_tensor_set(cross, crossb.data(), 0, crossb.size()*sizeof(float));
         ggml_backend_tensor_set(glob,  globb.data(),  0, globb.size()*sizeof(float));
@@ -913,6 +955,7 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         else
             printf("  step %d/%d  t=%.4f%s\n", i+1, steps, tcur,
                    (do_cfg && tcur >= cfg_interval_min && tcur <= cfg_interval_max) ? "  (cfg)" : "");
+        if (params.should_cancel && params.should_cancel()) { dit_cancelled = true; break; }
     }
     profile_log(prof, "dit_upload", dit_upload);
     profile_log(prof, "dit_compute", dit_compute);
@@ -920,9 +963,13 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     profile_log(prof, "dit_total", wall_time_s() - t_dit_total);
     ggml_gallocr_free(alloc_dit); ggml_free(dctx);
     if (!keep_models) { DIT.free(); dit_loras_.clear(); }   // DiT gone -> next gen reloads a clean base
+    if (dit_cancelled)
+        throw_cancelled_after_frugal_cleanup();
 
     LoudnessMeta loudness_meta = make_loudness_meta(params.loudness);
     apply_latent_loudness(host_x, params.loudness, loudness_meta);
+    if (params.should_cancel && params.should_cancel())
+        throw_cancelled_after_frugal_cleanup();
 
     // ---------- decode -> samples ----------
     const double t_dec_total = wall_time_s();
@@ -1003,9 +1050,12 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     std::vector<float> ab((size_t)n_samp*n_ch, 0.0f);
     if (params.on_progress) params.on_progress({"decoding", 0, 1, 0.9f});   // decode spans 0.9..1.0
     if (!can_chunk_decode) {
+        throw_if_cancelled(params.should_cancel);
         DecodeGraph dg = build_decode_graph(T);
         run_decode_graph(dg, host_x.data(), ab);
         free_decode_graph(dg);
+        if (params.should_cancel && params.should_cancel())
+            throw_cancelled_after_frugal_cleanup();
     } else {
         const std::vector<ChunkTile> tiles = plan_chunks(T, decode_chunk_size, decode_overlap);
         fprintf(stderr, "[sa3] chunked SAME-L decode: %zu chunks, size=%d overlap=%d\n",
@@ -1014,7 +1064,9 @@ inline GenResult Pipeline::generate(const GenParams& params) {
         std::vector<float> zchunk((size_t)sc.latent * decode_chunk_size);
         std::vector<float> chunk_audio;
         const int chunk_samples = decode_chunk_size * ds;
+        bool cancelled = false;
         for (size_t i = 0; i < tiles.size(); i++) {
+            if (params.should_cancel && params.should_cancel()) { cancelled = true; break; }
             const ChunkTile& tl = tiles[i];   // decode stitches in samples: scale the plan by ds
             for (int t = 0; t < decode_chunk_size; t++)
                 memcpy(&zchunk[(size_t)t*sc.latent], &host_x[(size_t)(tl.src + t)*sc.latent], sc.latent*sizeof(float));
@@ -1028,8 +1080,11 @@ inline GenResult Pipeline::generate(const GenParams& params) {
                 memcpy(&ab[(size_t)c*n_samp + target_start],
                        &chunk_audio[(size_t)c*chunk_samples + tl.left * ds],
                        (size_t)copy_count*sizeof(float));
+            if (params.should_cancel && params.should_cancel()) { cancelled = true; break; }
         }
         free_decode_graph(dg);
+        if (cancelled)
+            throw_cancelled_after_frugal_cleanup();
     }
     profile_log(prof, "dec_build", dec_build);
     profile_log(prof, "dec_alloc", dec_alloc);
@@ -1038,7 +1093,11 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     profile_log(prof, "dec_download", dec_download);
     profile_log(prof, "dec_total", wall_time_s() - t_dec_total);
 
-    if (!keep_models) { AE.free(); nets_resident_ = false; }   // frugal: free everything -> reload next call
+    if (!keep_models) {
+        AE.free();
+        if (CD_) CD_->free();
+        nets_resident_ = false;
+    }   // frugal: free everything -> reload next call
 
     // truncate the padded canvas back to the requested length (planar -> compact each channel)
     int out_n_samp = eff_frames * sc.patch_size * sc.output_seg;

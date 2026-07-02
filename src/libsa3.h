@@ -44,6 +44,10 @@ typedef struct {
  * "sampling" | "decoding" | "done". Called on the sa3_generate() thread. */
 typedef void (*sa3_progress_cb)(void* user, const char* stage, int step, int total, float fraction);
 
+/* Optional cooperative cancel callback for embedded hosts. Return non-zero to ask generation to stop
+ * at the next safe boundary. An in-flight backend graph may still run until it reaches that boundary. */
+typedef int (*sa3_cancel_cb)(void* user);
+
 /* Loudness post-processing. Defaults mirror gary4local (peak-normalize +2 dB, limiter -0.3 dB) — see
  * docs/LOUDNESS.md. Leave `set = 0` (the zero-initialized default) to use those defaults plus any
  * SA3_* env overrides. Set `set = 1` to drive it per-request from the fields below, including RAW,
@@ -116,7 +120,10 @@ typedef struct {
  * like a normal sa3_request, then set init_audio if needed.
  *
  * encode/decode chunk sizes are optional advanced SAME-L controls for long init audio. Leave them 0
- * for the monolithic default; when a chunk size is set, overlap <= 0 falls back to 32. */
+ * for the monolithic default; when a chunk size is set, overlap <= 0 falls back to 32.
+ *
+ * should_cancel/cancel_user are optional and allow plugin hosts to abort long renders during UI/DAW
+ * shutdown without unloading the library while a worker thread is still inside libsa3. */
 typedef struct {
     sa3_request request;
     sa3_init_audio init_audio;
@@ -124,6 +131,8 @@ typedef struct {
     int encode_overlap;
     int decode_chunk_size;
     int decode_overlap;
+    sa3_cancel_cb should_cancel;
+    void* cancel_user;
 } sa3_request_ex;
 
 /* Decoded audio. samples is PLANAR by channel: samples[c * n_samp + s]. Free with sa3_free_audio(). */

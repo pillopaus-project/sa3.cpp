@@ -101,6 +101,11 @@ static int sa3_generate_impl(sa3_context* ctx, const sa3_request* req, const sa3
                 p.decode_chunk_size = req_ex->decode_chunk_size;
                 p.decode_overlap = req_ex->decode_overlap > 0 ? req_ex->decode_overlap : 32;
             }
+            if (req_ex->should_cancel) {
+                const sa3_cancel_cb cb = req_ex->should_cancel;
+                void* user = req_ex->cancel_user;
+                p.should_cancel = [cb, user]() { return cb(user) != 0; };
+            }
         }
 
         for (int i = 0; i < req->n_loras; i++) {
