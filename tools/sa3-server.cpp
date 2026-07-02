@@ -637,15 +637,7 @@ bool parse_generate_request(yyjson_val* root, const std::string& adir,
             perr = std::string("invalid init_path WAV: ") + e.what();
             return false;
         }
-        if (sr != 44100) {
-            int resampled_ns = 0;
-            params.init_audio = sa3::resample_planar_linear(params.init_audio, ns, nc, sr, 44100, resampled_ns);
-            fprintf(stderr, "[sa3-server] resampled init_path from %d Hz/%d samples to 44100 Hz/%d samples\n",
-                    sr, ns, resampled_ns);
-            fflush(stderr);
-            ns = resampled_ns;
-        }
-        params.init_n_samp = ns; params.init_n_ch = nc;
+        params.init_n_samp = ns; params.init_n_ch = nc; params.init_sample_rate = sr;  // pipeline resamples
     }
 
     return true;
@@ -966,16 +958,7 @@ int main(int argc, char** argv) {
                 res.set_content(json_err(std::string("invalid init_path WAV: ") + e.what()), "application/json");
                 return;
             }
-            if (sr != 44100) {
-                int resampled_ns = 0;
-                params.init_audio = sa3::resample_planar_linear(params.init_audio, ns, nc, sr, 44100, resampled_ns);
-                fprintf(stderr, "[sa3-server] resampled init_path from %d Hz/%d samples to 44100 Hz/%d samples\n",
-                        sr, ns, resampled_ns);
-                fflush(stderr);
-                ns = resampled_ns;
-                sr = 44100;
-            }
-            params.init_n_samp = ns; params.init_n_ch = nc;
+            params.init_n_samp = ns; params.init_n_ch = nc; params.init_sample_rate = sr;  // pipeline resamples
         }
 
         // register the job, then hand off to a worker thread and reply immediately

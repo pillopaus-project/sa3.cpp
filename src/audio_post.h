@@ -4,10 +4,38 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace sa3 {
+
+// Linear-interpolation resampler for PLANAR audio (samples[c*n_samples + s]). Adequate for a2a init
+// audio (a conditioning source); the official SA3 uses a torchaudio sinc resampler. Returns the
+// resampled planar buffer and sets out_samples. src_rate==dst_rate returns the input unchanged.
+inline std::vector<float> resample_planar_linear(const std::vector<float>& input,
+                                                 int n_samples, int n_ch,
+                                                 int src_rate, int dst_rate, int& out_samples) {
+    if (n_samples <= 0 || n_ch <= 0) { out_samples = 0; return {}; }
+    if (src_rate <= 0 || dst_rate <= 0) throw std::runtime_error("invalid sample rate for resampling");
+    if (src_rate == dst_rate) { out_samples = n_samples; return input; }
+
+    out_samples = std::max(1, (int)std::llround((double)n_samples * (double)dst_rate / (double)src_rate));
+    std::vector<float> out((size_t)out_samples * n_ch);
+    const double src_step = (double)src_rate / (double)dst_rate;
+    for (int c = 0; c < n_ch; c++) {
+        const float* in_ch = input.data() + (size_t)c * n_samples;
+        float* out_ch = out.data() + (size_t)c * out_samples;
+        for (int s = 0; s < out_samples; s++) {
+            const double pos = (double)s * src_step;
+            int i0 = (int)std::floor(pos);
+            if (i0 >= n_samples - 1) { out_ch[s] = in_ch[n_samples - 1]; continue; }
+            const float frac = (float)(pos - (double)i0);
+            out_ch[s] = in_ch[i0] + (in_ch[i0 + 1] - in_ch[i0]) * frac;
+        }
+    }
+    return out;
+}
 
 struct LoudnessParams {
     float latent_rescale = 1.0f;
@@ -35,6 +63,8 @@ struct LoudnessMeta {
     float peak_normalize_gain = 1.0f;
     bool  limiter_limited_fraction_set = false;
     float limiter_limited_fraction = 0.0f;
+    bool  safety_gain_set = false;
+    float safety_gain = 1.0f;
     float final_peak = 0.0f;
 };
 
@@ -204,7 +234,21 @@ inline void apply_audio_loudness(std::vector<float>& audio, const LoudnessParams
         meta.limiter_limited_fraction = audio.empty() ? 0.0f : (float)((double)limited / (double)audio.size());
         meta.limiter_limited_fraction_set = true;
     }
-    meta.final_peak = max_abs(audio);
+
+    // True-peak safety: when peak-normalize is active, never leave the output above 0 dBFS — otherwise
+    // a positive peak_normalize_db (default +2 dB) with the limiter disabled would hard-clip on the
+    // 16-bit WAV write. No-op in the normal limiter-on path (peak already <= the ceiling < 1.0). Gated
+    // on peak_normalize so a fully-raw request (both off) stays byte-for-byte untouched.
+    const float peak = max_abs(audio);
+    if (params.peak_normalize_enabled && peak > 1.0f) {
+        const float g = 1.0f / peak;
+        for (float& v : audio) v *= g;
+        meta.safety_gain = g;
+        meta.safety_gain_set = true;
+        meta.final_peak = 1.0f;
+    } else {
+        meta.final_peak = peak;
+    }
 }
 
 } // namespace sa3

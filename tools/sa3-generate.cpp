@@ -214,17 +214,10 @@ int main(int argc, char** argv) {
     params.keep_models       = keep_models;   // no on_progress -> the pipeline prints the step lines itself
     for (auto& ls : lora_specs) params.loras.push_back(ls);
 
-    if (init_p) {   // audio2audio / inpaint source WAV -> raw planar samples in the request
+    if (init_p) {   // audio2audio / inpaint source WAV -> raw planar samples + rate (pipeline resamples)
         int n_samp = 0, n_ch = 0, sr = 0;
         params.init_audio = sa3::read_wav_planar(init_p, n_samp, n_ch, sr);
-        if (sr != 44100) {
-            int resampled_n_samp = 0;
-            params.init_audio = sa3::resample_planar_linear(params.init_audio, n_samp, n_ch, sr, 44100, resampled_n_samp);
-            fprintf(stderr, "resampled init WAV from %d Hz/%d samples to 44100 Hz/%d samples\n",
-                    sr, n_samp, resampled_n_samp);
-            n_samp = resampled_n_samp;
-        }
-        params.init_n_samp = n_samp; params.init_n_ch = n_ch;
+        params.init_n_samp = n_samp; params.init_n_ch = n_ch; params.init_sample_rate = sr;
     }
 
     try {

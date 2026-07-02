@@ -279,10 +279,12 @@ struct GenParams {
     int      steps  = 8;
     uint64_t seed   = 0;
 
-    // audio2audio / inpaint (optional). init_audio is planar [init_n_samp, init_n_ch] @ 44.1 kHz;
-    // empty => text2music. Length-derivation (T from the source, padding) happens inside generate().
+    // audio2audio / inpaint (optional). init_audio is planar [init_n_samp, init_n_ch] at any rate —
+    // generate() resamples to the model's 44.1 kHz if init_sample_rate differs (the caller just passes
+    // the source rate; cf. the official preprocess_audio). empty => text2music.
     std::vector<float> init_audio;
     int   init_n_samp = 0, init_n_ch = 0;
+    int   init_sample_rate = 44100;    // source rate of init_audio; != 44100 => resampled in generate()
     float init_noise_level = 0.85f;    // sigma_max for a2a (1.0 == text2music)
     float inpaint_start = -1.0f;       // inpaint region in seconds; needs init_audio + a local-cond DiT
     float inpaint_end   = -1.0f;       // also the TOTAL output duration (a short clip can extend)
@@ -506,8 +508,18 @@ inline GenResult Pipeline::generate(const GenParams& params) {
     // ---------- init audio: pad + derive output T (overrides params.frames) ----------
     std::vector<float> init_audio; int init_L = 0;
     if (has_init) {
-        const int n_samp = params.init_n_samp, n_ch = params.init_n_ch;
-        const std::vector<float>& raw = params.init_audio;
+        int n_samp = params.init_n_samp; const int n_ch = params.init_n_ch;
+        // resample the init source to the model rate (44.1 kHz) if the caller passed another rate.
+        std::vector<float> resampled;
+        const std::vector<float>* rawp = &params.init_audio;
+        if (params.init_sample_rate > 0 && params.init_sample_rate != 44100) {
+            int out_ns = 0;
+            resampled = sa3::resample_planar_linear(params.init_audio, n_samp, n_ch,
+                                                    params.init_sample_rate, 44100, out_ns);
+            printf("init: resampled %d Hz -> 44100 Hz (%d -> %d samples)\n", params.init_sample_rate, n_samp, out_ns);
+            n_samp = out_ns; rawp = &resampled;
+        }
+        const std::vector<float>& raw = *rawp;
         if (n_ch != sc.out_channels / sc.patch_size)
             throw std::runtime_error("init audio must be " + std::to_string(sc.out_channels / sc.patch_size) + "-channel");
         int want = n_samp;
