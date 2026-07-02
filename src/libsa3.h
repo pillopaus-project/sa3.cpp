@@ -1,8 +1,9 @@
 /* libsa3 — a tiny C ABI over the sa3 generation pipeline, for embedding SA3 directly in a host
  * (e.g. a JUCE / IPlug2 plugin) without spawning the CLI or the HTTP server.
  *
- * Lifecycle:   sa3_init() -> sa3_generate() [* N] -> sa3_free()
- * Ownership:   sa3_generate() allocates sa3_audio.samples; release it with sa3_free_audio() (same
+ * Lifecycle:   sa3_init() -> sa3_generate()/sa3_generate_ex() [* N] -> sa3_free()
+ * Ownership:   sa3_generate()/sa3_generate_ex() allocate sa3_audio.samples; release it with
+ *              sa3_free_audio() (same
  *              allocator/CRT as the library — do NOT free() it yourself across a DLL boundary).
  * Threading:   a context is NOT reentrant — serialize sa3_generate() calls per context.
  * Errors:      no C++ exceptions cross this boundary; failures return NULL / non-zero and fill `err`.
@@ -82,6 +83,49 @@ typedef struct {
     void*           user;           /* passed back to on_progress */
 } sa3_request;
 
+enum {
+    SA3_INIT_AUDIO_NONE    = 0,
+    SA3_INIT_AUDIO_A2A     = 1,
+    SA3_INIT_AUDIO_INPAINT = 2
+};
+
+/* Optional audio input for sa3_generate_ex(). `samples` is PLANAR float audio laid out as
+ * samples[ch * n_samp + sample] at sample_rate Hz. The pipeline resamples to 44.1 kHz internally.
+ *
+ * mode = SA3_INIT_AUDIO_A2A:
+ *   Audio-to-audio. Output length follows the input audio; init_noise_level <= 0 uses 0.85.
+ *
+ * mode = SA3_INIT_AUDIO_INPAINT:
+ *   Inpainting/continuation. Requires a local-conditioning DiT. The window [inpaint_start,
+ *   inpaint_end) is in seconds; audio outside the window is kept, and inpaint_end can extend the
+ *   total output past the supplied source audio.
+ */
+typedef struct {
+    int          mode;
+    const float* samples;
+    int          n_samp;
+    int          n_ch;
+    int          sample_rate;
+    float        init_noise_level;
+    float        inpaint_start;
+    float        inpaint_end;
+} sa3_init_audio;
+
+/* Extended generation request. Keeps the original sa3_request layout intact for ABI stability while
+ * exposing the embedded-audio path used by plugin hosts. Zero-initialize this struct, fill `request`
+ * like a normal sa3_request, then set init_audio if needed.
+ *
+ * encode/decode chunk sizes are optional advanced SAME-L controls for long init audio. Leave them 0
+ * for the monolithic default; when a chunk size is set, overlap <= 0 falls back to 32. */
+typedef struct {
+    sa3_request request;
+    sa3_init_audio init_audio;
+    int encode_chunk_size;
+    int encode_overlap;
+    int decode_chunk_size;
+    int decode_overlap;
+} sa3_request_ex;
+
 /* Decoded audio. samples is PLANAR by channel: samples[c * n_samp + s]. Free with sa3_free_audio(). */
 typedef struct {
     float*   samples;
@@ -96,6 +140,9 @@ SA3_API sa3_context* sa3_init(const sa3_config* cfg, char* err, int err_len);
 
 /* Generate. Returns 0 on success (out filled), non-zero on failure (err filled). Not reentrant. */
 SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* out, char* err, int err_len);
+
+/* Extended generate with raw init audio for audio2audio and inpaint/continuation. */
+SA3_API int sa3_generate_ex(sa3_context* ctx, const sa3_request_ex* req, sa3_audio* out, char* err, int err_len);
 
 /* Release the sample buffer allocated by sa3_generate(). */
 SA3_API void sa3_free_audio(sa3_audio* audio);

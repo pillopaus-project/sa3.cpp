@@ -218,5 +218,5 @@ the same pattern as the PyTorch sa3 service.
 `/generate` covers the full pipeline — text2music, LoRA, audio2audio, and inpaint/continuation. The init
 audio is passed as a **local file path** (`init_path`), which is the simple, correct thing for a localhost
 backend; a base64/multipart upload path could be added later if a *remote* or fully in-memory client ever
-needs it. (For an in-process C-ABI alternative to the server, a `libsa3` shim is possible but deferred —
-HTTP already covers the JUCE/IPlug2/gary4local consumers.)
+needs it. For an in-process plugin/host, `libsa3` exposes the same init-audio path via
+`sa3_generate_ex()` with planar float samples in memory; see [EMBEDDING.md](EMBEDDING.md).

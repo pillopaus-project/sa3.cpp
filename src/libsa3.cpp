@@ -3,9 +3,11 @@
 #include "libsa3.h"
 #include "sa3_pipeline.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -21,31 +23,42 @@ static void set_err(char* err, int n, const std::string& m) {
     if (err && n > 0) { std::strncpy(err, m.c_str(), (size_t)n - 1); err[n - 1] = '\0'; }
 }
 
-extern "C" {
+static bool apply_init_audio(const sa3_init_audio& in, sa3::GenParams& p, std::string& err) {
+    if (in.mode == SA3_INIT_AUDIO_NONE) return true;
+    if (in.mode != SA3_INIT_AUDIO_A2A && in.mode != SA3_INIT_AUDIO_INPAINT) {
+        err = "init_audio.mode must be SA3_INIT_AUDIO_NONE, SA3_INIT_AUDIO_A2A, or SA3_INIT_AUDIO_INPAINT";
+        return false;
+    }
+    if (!in.samples || in.n_samp <= 0 || in.n_ch <= 0 || in.sample_rate <= 0) {
+        err = "init_audio requires non-null planar samples, n_samp > 0, n_ch > 0, and sample_rate > 0";
+        return false;
+    }
+    if (!std::isfinite(in.init_noise_level) || !std::isfinite(in.inpaint_start) || !std::isfinite(in.inpaint_end)) {
+        err = "init_audio fields must be finite";
+        return false;
+    }
+    const int64_t total = (int64_t)in.n_samp * (int64_t)in.n_ch;
+    if (total <= 0 || (uint64_t)total > (uint64_t)(std::numeric_limits<size_t>::max() / sizeof(float))) {
+        err = "init_audio sample count is too large";
+        return false;
+    }
 
-SA3_API sa3_context* sa3_init(const sa3_config* cfg, char* err, int err_len) {
-    try {
-        std::string models_dir = cfg && cfg->models_dir ? cfg->models_dir : "";
-        if (models_dir.empty()) { const char* e = std::getenv("SA3_MODELS_DIR"); models_dir = (e && *e) ? e : "models"; }
-        const std::string variant  = cfg && cfg->variant  ? cfg->variant  : "medium";
-        const std::string encoding = cfg && cfg->encoding ? cfg->encoding : "f16";
-        const std::string adir     = cfg && cfg->adapters_dir ? cfg->adapters_dir : models_dir;
-
-        sa3::ModelPaths mp; std::string rerr;
-        if (!sa3::ModelPaths::resolve(models_dir, variant, encoding, mp, rerr)) { set_err(err, err_len, rerr); return nullptr; }
-
-        auto ctx = std::make_unique<sa3_context>();
-        ctx->paths = mp;
-        ctx->adapters_dir = adir;
-        ctx->pipe = std::make_unique<sa3::Pipeline>();
-        ctx->pipe->load(mp);
-        return ctx.release();
-    } catch (const std::exception& e) { set_err(err, err_len, e.what()); return nullptr; }
-      catch (...)                     { set_err(err, err_len, "unknown error"); return nullptr; }
+    p.init_audio.assign(in.samples, in.samples + (size_t)total);
+    p.init_n_samp = in.n_samp;
+    p.init_n_ch = in.n_ch;
+    p.init_sample_rate = in.sample_rate;
+    p.init_noise_level = in.init_noise_level > 0.0f ? in.init_noise_level : 0.85f;
+    if (in.mode == SA3_INIT_AUDIO_INPAINT) {
+        p.inpaint_start = in.inpaint_start;
+        p.inpaint_end = in.inpaint_end;
+    }
+    return true;
 }
 
-SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* out, char* err, int err_len) {
+static int sa3_generate_impl(sa3_context* ctx, const sa3_request* req, const sa3_request_ex* req_ex,
+                             sa3_audio* out, char* err, int err_len) {
     if (!ctx || !req || !out) { set_err(err, err_len, "null argument"); return 1; }
+    out->samples = nullptr; out->n_samp = 0; out->n_ch = 0; out->sample_rate = 0; out->seed = 0;
     try {
         if (!ctx->pipe) {   // reload after sa3_unload()
             ctx->pipe = std::make_unique<sa3::Pipeline>();
@@ -77,6 +90,19 @@ SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* ou
             p.loudness = sa3::loudness_defaults_from_env();   // gary4local defaults + SA3_* env overrides
         }
 
+        if (req_ex) {
+            std::string ierr;
+            if (!apply_init_audio(req_ex->init_audio, p, ierr)) { set_err(err, err_len, ierr); return 5; }
+            if (req_ex->encode_chunk_size > 0) {
+                p.encode_chunk_size = req_ex->encode_chunk_size;
+                p.encode_overlap = req_ex->encode_overlap > 0 ? req_ex->encode_overlap : 32;
+            }
+            if (req_ex->decode_chunk_size > 0) {
+                p.decode_chunk_size = req_ex->decode_chunk_size;
+                p.decode_overlap = req_ex->decode_overlap > 0 ? req_ex->decode_overlap : 32;
+            }
+        }
+
         for (int i = 0; i < req->n_loras; i++) {
             const std::string name = (req->lora_names && req->lora_names[i]) ? req->lora_names[i] : "";
             if (name.empty()) continue;
@@ -103,6 +129,38 @@ SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* ou
       catch (...)                     { set_err(err, err_len, "unknown error"); return 10; }
 }
 
+extern "C" {
+
+SA3_API sa3_context* sa3_init(const sa3_config* cfg, char* err, int err_len) {
+    try {
+        std::string models_dir = cfg && cfg->models_dir ? cfg->models_dir : "";
+        if (models_dir.empty()) { const char* e = std::getenv("SA3_MODELS_DIR"); models_dir = (e && *e) ? e : "models"; }
+        const std::string variant  = cfg && cfg->variant  ? cfg->variant  : "medium";
+        const std::string encoding = cfg && cfg->encoding ? cfg->encoding : "f16";
+        const std::string adir     = cfg && cfg->adapters_dir ? cfg->adapters_dir : models_dir;
+
+        sa3::ModelPaths mp; std::string rerr;
+        if (!sa3::ModelPaths::resolve(models_dir, variant, encoding, mp, rerr)) { set_err(err, err_len, rerr); return nullptr; }
+
+        auto ctx = std::make_unique<sa3_context>();
+        ctx->paths = mp;
+        ctx->adapters_dir = adir;
+        ctx->pipe = std::make_unique<sa3::Pipeline>();
+        ctx->pipe->load(mp);
+        return ctx.release();
+    } catch (const std::exception& e) { set_err(err, err_len, e.what()); return nullptr; }
+      catch (...)                     { set_err(err, err_len, "unknown error"); return nullptr; }
+}
+
+SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* out, char* err, int err_len) {
+    return sa3_generate_impl(ctx, req, nullptr, out, err, err_len);
+}
+
+SA3_API int sa3_generate_ex(sa3_context* ctx, const sa3_request_ex* req, sa3_audio* out, char* err, int err_len) {
+    if (!req) { set_err(err, err_len, "null argument"); return 1; }
+    return sa3_generate_impl(ctx, &req->request, req, out, err, err_len);
+}
+
 SA3_API void sa3_free_audio(sa3_audio* a) {
     if (a && a->samples) { std::free(a->samples); a->samples = nullptr; a->n_samp = 0; }
 }
@@ -111,6 +169,6 @@ SA3_API void sa3_unload(sa3_context* ctx) { if (ctx) ctx->pipe.reset(); }   // d
 
 SA3_API void sa3_free(sa3_context* ctx) { delete ctx; }
 
-SA3_API const char* sa3_version(void) { return "sa3.cpp libsa3 1"; }
+SA3_API const char* sa3_version(void) { return "sa3.cpp libsa3 2"; }
 
 } // extern "C"

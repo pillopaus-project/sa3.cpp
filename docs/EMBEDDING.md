@@ -21,17 +21,42 @@ Full contract is in [`src/libsa3.h`](../src/libsa3.h). The shape:
 sa3_context* ctx = sa3_init(&cfg, err, sizeof err);        // load the models (blocks ~seconds)
 sa3_audio audio = {0};
 sa3_generate(ctx, &req, &audio, err, sizeof err);          // prompt -> planar float samples (blocks)
+// or: sa3_generate_ex(ctx, &req_ex, &audio, err, sizeof err); // audio2audio / inpaint with raw planar init audio
 // ... use audio.samples (planar: samples[ch*n_samp + s]), audio.seed is the resolved seed ...
 sa3_free_audio(&audio);
 sa3_unload(ctx);   // optional: drop the models (free VRAM), keep ctx; next generate reloads
 sa3_free(ctx);     // destroy
 ```
 
-- **Zero-initialize** `sa3_config` / `sa3_request` (`memset 0` or `{0}`); a `0`/`NULL` field means "default".
+- **Zero-initialize** `sa3_config` / `sa3_request` / `sa3_request_ex` (`memset 0` or `{0}`); a `0`/`NULL` field means "default".
 - **Errors** don't throw — failures return `NULL`/non-zero and fill your `err` buffer.
 - **Not reentrant** — serialize `sa3_generate` calls on a given context.
 - **Ownership** — `sa3_generate` allocates `audio.samples`; release it with `sa3_free_audio` (same
   library/CRT — don't `free()` it yourself across the DLL boundary).
+
+For audio2audio or inpaint/continuation, use `sa3_request_ex`. Put your normal request fields under
+`req_ex.request`, then provide planar float source audio:
+
+```c
+sa3_request_ex req = {0};
+req.request.prompt = "turn this into a bright synth loop";
+req.request.steps = 8;
+req.request.seed = -1;
+req.request.keep_models = 1;
+req.init_audio.mode = SA3_INIT_AUDIO_A2A;       // or SA3_INIT_AUDIO_INPAINT
+req.init_audio.samples = planar;                // samples[ch * n_samp + s]
+req.init_audio.n_samp = n_samp;
+req.init_audio.n_ch = n_ch;
+req.init_audio.sample_rate = sample_rate;       // resampled inside libsa3 if needed
+req.init_audio.init_noise_level = 0.85f;        // <=0 uses 0.85
+
+// Inpaint/continue only:
+req.init_audio.mode = SA3_INIT_AUDIO_INPAINT;
+req.init_audio.inpaint_start = 8.0f;
+req.init_audio.inpaint_end = 30.0f;             // can extend beyond source length
+
+sa3_generate_ex(ctx, &req, &audio, err, sizeof err);
+```
 
 The canonical, *working* usage example is [`tools/sa3-libtest.c`](../tools/sa3-libtest.c) — copy from there.
 
