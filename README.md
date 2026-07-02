@@ -6,6 +6,14 @@ it might allow me to start unifying gary4local for mac and pc.
 
 it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md). i'll test that out shortly in a dead-simple app now that we have the libsa3. 
 
+`sa3-libcancel` is a small C ABI smoke test for embedded hosts. It calls `sa3_generate_ex` with
+the same frugal/chunked text2music request shape used by the IPlug2 demo and verifies that a
+cooperative cancellation callback exits cleanly without output audio:
+
+```bash
+sa3-libcancel ./models
+```
+
 ## quickstart
 
 ```bash
