@@ -1,18 +1,16 @@
 # stable-audio-3 in c++
 
-trying to make this as composable and extensible as i can without over-engineering it too much. my hope is that this might eventually replace the sa3 backend i already use in https://github.com/betweentwomidnights/gary-localhost-installer. 
+trying to make this as composable and extensible as i can without over-engineering it too much. my hope is that this might eventually replace the sa3 backend i already use in [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer), and start unifying that application for mac/pc. 
 
-it might allow me to start unifying gary4local for mac and pc. 
-
-it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md).
+it might also just allow us to embed sa3 directly inside a JUCE/iPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md).
 
 because this is my first ggml project, i wanted to be the first to actually run it in downstream apps instead of just benchmarking it. so both surfaces are already tested end-to-end:
 
-- the **http server** (`sa3-server`) drives [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) — a max for live / ableton device.
-- **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo) — a dead-simple vst/standalone plugin.
+- the **http server** (`sa3-server`) drives [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) - an ableton extension (their new node-based framework for right-click/context-menu tools)
+- **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo) - a quick vst/standalone plugin.
 
 `sa3-libcancel` is a small C ABI smoke test for embedded hosts. It calls `sa3_generate_ex` with
-the same frugal/chunked text2music request shape used by the IPlug2 demo and verifies that a
+the same frugal/chunked text2music request shape used by the iPlug2 demo and verifies that a
 cooperative cancellation callback exits cleanly without output audio:
 
 ```bash
@@ -28,8 +26,8 @@ cd sa3.cpp
 # 1. build a backend (own dir each, so they coexist)
 ./build.sh cuda        # or: cpu | vulkan | hip | metal | all     (windows: build.cmd cuda)
 
-# 2. download a model set into ./models  (needs: python3 -m pip install huggingface_hub)
-python3 tools/download_models.py --variant medium --encoding f16
+# 2. download a model set into ./models  (no python — curl from HuggingFace)
+./models.sh            # windows: models.cmd    (or --variant small-music | --encoding f32)
 
 # 3. put the tools on PATH for this shell (points SA3_MODELS_DIR at ./models too)
 source ./env.sh        # windows:  env.cmd  (cmd)   or   . .\env.ps1  (powershell)
@@ -38,7 +36,7 @@ source ./env.sh        # windows:  env.cmd  (cmd)   or   . .\env.ps1  (powershel
 sa3-generate --model medium --prompt "upbeat funk groove with slap bass" --out song.wav
 
 # adapters resolve the same way: --lora <name> finds models/lora-<name>-*.gguf
-sa3-generate --model medium --lora kev --lora keygen --prompt "breakcore 140bpm" --out song.wav
+sa3-generate --model medium --lora kev --lora keygen --prompt "neo-classical lofi hiphop 90bpm C# minor" --out song.wav
 ```
 
 (`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still

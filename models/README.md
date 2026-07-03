@@ -1,0 +1,35 @@
+# Models
+
+The GGUF model set lives here (the default `SA3_MODELS_DIR`). One variant needs five files — its DiT, SAME
+autoencoder, and conditioner, plus the shared T5Gemma encoder + tokenizer:
+
+| File | Role |
+|------|------|
+| `stable-audio-3-<variant>-dit-<size>-v1.0-<F16\|F32>.gguf` | DiT — the diffusion transformer |
+| `stable-audio-3-<variant>-<same-l\|same-s>-v1.0-<F16\|F32>.gguf` | SAME autoencoder — audio ↔ latent |
+| `stable-audio-3-<variant>-conditioner-v1.0-F32.gguf` | per-variant conditioner (prompt + seconds embeddings) |
+| `t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf` | shared T5Gemma text encoder |
+| `t5gemma-b-b-ul2-v1.0-vocab.gguf` | shared tokenizer |
+
+`<variant>` is `medium` (DiT 1.5B, SAME-L) or `small-music` / `small-sfx` (DiT 0.5B, SAME-S). `F16` is the
+production path; `F32` is for CPU / bit-exact validation. The conditioner, encoder, and tokenizer are small and
+quality-critical, so they're always F32.
+
+## Get them (no Python)
+
+```bash
+./models.sh                          # medium f16   (Windows: models.cmd)
+./models.sh --variant small-music    # or small-sfx; --encoding f32; --out DIR
+```
+
+Or download by hand from HuggingFace:
+
+- https://huggingface.co/thepatch/stable-audio-3-medium-GGUF
+- https://huggingface.co/thepatch/stable-audio-3-small-music-GGUF
+- https://huggingface.co/thepatch/stable-audio-3-small-sfx-GGUF
+- https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF  (shared encoder + tokenizer)
+
+`sa3-generate --model <variant>` resolves this set from the naming convention above. LoRA adapters resolve the
+same way (`lora-<name>-*.gguf`) — see [`../loras`](../loras).
+
+The `.gguf` files are gitignored; only this README is tracked.
