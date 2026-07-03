@@ -2,6 +2,7 @@
 #define SA3_BUILD_DLL
 #include "libsa3.h"
 #include "sa3_pipeline.h"
+#include "lora_convert.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -185,5 +186,18 @@ SA3_API void sa3_unload(sa3_context* ctx) { if (ctx) ctx->pipe.reset(); }   // d
 SA3_API void sa3_free(sa3_context* ctx) { delete ctx; }
 
 SA3_API const char* sa3_version(void) { return "sa3.cpp libsa3 2"; }
+
+SA3_API int sa3_convert_lora(const char* safetensors_path, const char* json_path,
+                             const char* out_gguf_path, char* err, int err_len) {
+    if (!safetensors_path || !json_path || !out_gguf_path) { set_err(err, err_len, "null argument"); return 1; }
+    try {
+        std::string e;
+        if (!sa3::convert_lora_safetensors(safetensors_path, json_path, out_gguf_path, e)) {
+            set_err(err, err_len, e); return 2;
+        }
+        return 0;
+    } catch (const std::exception& e) { set_err(err, err_len, e.what()); return 10; }
+      catch (...)                     { set_err(err, err_len, "unknown error"); return 10; }
+}
 
 } // extern "C"

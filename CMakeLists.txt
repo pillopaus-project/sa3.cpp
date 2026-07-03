@@ -77,11 +77,17 @@ else()
     set_source_files_properties(vendor/yyjson/yyjson.c vendor/cpp-httplib/httplib.cpp PROPERTIES COMPILE_FLAGS -w)
 endif()
 
+# sa3-lora-convert: native safetensors->gguf LoRA conversion (no Python; src/lora_convert.h). Uses yyjson.
+add_executable(sa3-lora-convert tools/sa3-lora-convert.cpp vendor/yyjson/yyjson.c)
+target_link_libraries(sa3-lora-convert PRIVATE sa3)
+target_include_directories(sa3-lora-convert PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
+
 # --- libsa3: C ABI shared library (embed sa3 in a host app; see src/libsa3.h) ---------------
 # Windows: sa3.dll + sa3.lib (import lib).  Unix/macOS: libsa3.so / libsa3.dylib.
-add_library(sa3_shared SHARED src/libsa3.cpp)
+add_library(sa3_shared SHARED src/libsa3.cpp vendor/yyjson/yyjson.c)
 set_target_properties(sa3_shared PROPERTIES OUTPUT_NAME sa3)
 target_link_libraries(sa3_shared PRIVATE sa3)
+target_include_directories(sa3_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
 
 # Pure-C smoke test / usage example; links the import lib (proves the C ABI + boundary).
 add_executable(sa3-libtest tools/sa3-libtest.c)

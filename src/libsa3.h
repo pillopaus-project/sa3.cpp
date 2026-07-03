@@ -172,6 +172,12 @@ SA3_API void sa3_free(sa3_context* ctx);
 /* Static version string. */
 SA3_API const char* sa3_version(void);
 
+/* Convert an exported LoRA (safetensors + json from lora_ckpt_export.py; all tensors F32) to a sa3.cpp LoRA
+ * gguf, with NO Python. Lets a host import a .safetensors LoRA in-process. Byte-identical to
+ * tools/convert_lora.py. Returns 0 on success; non-zero + err message on failure. Does not need a context. */
+SA3_API int sa3_convert_lora(const char* safetensors_path, const char* json_path,
+                             const char* out_gguf_path, char* err, int err_len);
+
 #ifdef __cplusplus
 }
 #endif
