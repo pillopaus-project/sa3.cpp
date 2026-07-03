@@ -1,4 +1,4 @@
-# SAME-L decoder — implementation spec
+# SAME-L decoder — implementation spec (claude's notes)
 
 Full forward trace of `pretransform.decode(z)` for `stable-audio-3-medium`, read from the upstream
 PyTorch source ([Stability-AI/stable-audio-3](https://github.com/Stability-AI/stable-audio-3),

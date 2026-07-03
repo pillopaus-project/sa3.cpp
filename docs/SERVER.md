@@ -1,6 +1,6 @@
 # sa3-server — HTTP over the pipeline
 
-A small local HTTP server that wraps the same generation pipeline the CLI uses. Built by any of the
+a small local HTTP server that wraps the same generation pipeline the CLI uses. Built by any of the
 `build` scripts (it's a normal target). It's a **proof of concept that mirrors gary4local's async job
 model** — `POST /generate` returns a `session_id` immediately and the client polls `/poll_status/<id>`
 for progress and, on completion, the base64 audio. That makes it a drop-in for a gary4juce-style client
@@ -17,15 +17,15 @@ for progress and, on completion, the base64 audio. That makes it a drop-in for a
 #       --source-loras-dir DIR (or SA3_SOURCE_LORAS_DIR)
 ```
 
-On Windows, after `.\build.cmd cuda`, this keeps the server in the terminal you can close or Ctrl+C:
+on Windows, after `.\build.cmd cuda`, this keeps the server in the terminal you can close or Ctrl+C:
 
 ```powershell
 .\scripts\run-server.ps1
 ```
 
-It binds to `127.0.0.1` by default (local only). The model loads lazily on the first `/generate`.
+it binds to `127.0.0.1` by default (local only). The model loads lazily on the first `/generate`.
 
-## Endpoints
+## endpoints
 
 | method | path | body / result |
 |---|---|---|
@@ -38,9 +38,9 @@ It binds to `127.0.0.1` by default (local only). The model loads lazily on the f
 | `POST` | `/unload`   | frees the model (full VRAM release) → `{status:"unloaded"}` |
 
 `status` runs `queued → generating → encoding → completed` (or `failed`); `progress` is `0..100`
-(sampling `0→90`, decode `→100`). Poll until `status == "completed"`, then base64-decode `audio_data`.
-Finished jobs are pruned after 2 min. Clients can poll `/poll_status/<id>?consume=1` to return the
-completed audio once and immediately remove that job from server memory. Completed jobs include
+(sampling `0→90`, decode `→100`). poll until `status == "completed"`, then base64-decode `audio_data`.
+Finished jobs are pruned after 2 min. clients can poll `/poll_status/<id>?consume=1` to return the
+completed audio once and immediately remove that job from server memory. completed jobs include
 `meta.loudness` with the decoded peak, final peak, peak-normalize gain, and limiter fraction.
 `/health` also reports the current `loudness_defaults`.
 
@@ -114,25 +114,25 @@ returned WAV to the exact loop length.
 rate before audio2audio/inpaint processing. Chunked encode/decode is only used by SAME-L; SAME-S stays
 monolithic because its internal block structure is already chunked.
 
-LoRA `name` resolves to `<adapters-dir>/lora-<name>-*.gguf`; a full `"path"` also works. Set
+lora `name` resolves to `<adapters-dir>/lora-<name>-*.gguf`; a full `"path"` also works. Set
 `keep_models: true` to keep the model resident between requests (lower latency, more VRAM); the server
 reloads a clean DiT only when a request's adapter set changes, so strengths can vary per request either way.
 
-## Loudness safety
+## loudness safety
 
-The server defaults to the same output safety chain used in gary4local: decoded audio is peak-normalized
-to `+2.0 dB`, then limited to `-0.3 dB` with a `0.8` knee. That keeps hot LoRA generations from clipping
+the server defaults to the same output safety chain used in gary4local: decoded audio is peak-normalized
+to `+2.0 dB`, then limited to `-0.3 dB` with a `0.8` knee. that keeps hot LoRA generations from clipping
 when the WAV writer converts to 16-bit PCM.
 
-These defaults can be changed in `.env` with `SA3_PEAK_NORMALIZE_DB`, `SA3_LIMITER_CEILING_DB`, and
+these defaults can be changed in `.env` with `SA3_PEAK_NORMALIZE_DB`, `SA3_LIMITER_CEILING_DB`, and
 `SA3_LIMITER_KNEE`, or overridden per request with the JSON keys above. Set `SA3_PEAK_NORMALIZE_DB=off`
 or `"peak_normalize_db": null` to disable peak normalization; do the same for `limiter_ceiling_db` to
 disable the limiter. See [`LOUDNESS.md`](LOUDNESS.md) for the short rationale and latent-control notes.
 
-## LoRA and prompt discovery
+## lora and prompt discovery
 
 `GET /loras` scans the adapters directory and returns GGUF adapter names that can be passed back in a
-generation request. It also reports source `.ckpt` / `.safetensors` exports from `--source-loras-dir`
+generation request. it also reports source `.ckpt` / `.safetensors` exports from `--source-loras-dir`
 under `source_loras`; those need conversion before the C++ runtime can load them.
 
 ```json
@@ -142,14 +142,14 @@ under `source_loras`; those need conversion before the C++ runtime can load them
 }
 ```
 
-The resolver accepts:
+the resolver accepts:
 
 - full adapter paths
 - exact files in the adapters directory
 - `lora-<name>-*.gguf`
 - `<name>-*.gguf`
 
-Source adapters can be converted to runtime GGUF adapters with:
+source adapters can be converted to runtime GGUF adapters with:
 
 ```powershell
 .venv\Scripts\python.exe tools\convert_lora.py --in loras\kev --out models\lora-kev-f32.gguf
@@ -172,8 +172,8 @@ and returns the same shape used by gary4local:
 }
 ```
 
-The default file is `prompts/defaults.json`. Per-adapter prompt files live beside it
-as `<lora>.json`, for example `prompts/kev.json`. A client can request an adapter's
+the default file is `prompts/defaults.json`. per-adapter prompt files live beside it
+as `<lora>.json`, for example `prompts/kev.json`. a client can request an adapter's
 training-distribution prompts with:
 
 ```text
@@ -181,13 +181,13 @@ training-distribution prompts with:
 /prompts?lora=kev,keygen
 ```
 
-When a LoRA-specific prompt file contains a bucket such as `generic` or `drums`,
+when a lora-specific prompt file contains a bucket such as `generic` or `drums`,
 that bucket replaces the default bucket for the response. This lets adapter prompt
 pools stay narrow and distribution-faithful without losing unrelated buckets.
 
-## Calling it (async flow)
+## calling it (async flow)
 
-**PowerShell** — `curl` is an alias for `Invoke-WebRequest`, so use `Invoke-RestMethod`:
+**powerShell** — `curl` is an alias for `Invoke-WebRequest`, so use `Invoke-RestMethod`:
 ```powershell
 $body = '{"prompt":"breakcore 140bpm","duration":12,"loras":[{"name":"kev","strength":1.0}]}'
 $sid = (Invoke-RestMethod http://localhost:8006/generate -Method Post -ContentType application/json -Body $body).session_id
@@ -195,27 +195,27 @@ do { Start-Sleep 1; $p = Invoke-RestMethod "http://localhost:8006/poll_status/$s
 [IO.File]::WriteAllBytes("song.wav", [Convert]::FromBase64String($p.audio_data))
 ```
 
-**Git Bash / cmd / macOS / Linux** — real `curl` (+ `jq`):
+**git bash / cmd / macOS / linux** — real `curl` (+ `jq`):
 ```bash
 sid=$(curl -s -X POST http://localhost:8006/generate -H "Content-Type: application/json" \
   -d '{"prompt":"breakcore 140bpm","duration":12}' | jq -r .session_id)
 until [ "$(curl -s localhost:8006/poll_status/$sid | jq -r .status)" = completed ]; do sleep 1; done
 curl -s localhost:8006/poll_status/$sid | jq -r .audio_data | base64 -d > song.wav
 ```
-(To use `curl.exe` *from PowerShell*, pass the body from a file — `-d "@body.json"` — inline JSON quoting
+(to use `curl.exe` *from PowerShell*, pass the body from a file — `-d "@body.json"` — inline JSON quoting
 is mangled by PowerShell's native-argument handling.)
 
-## Residency / lifecycle
+## residency / lifecycle
 
-Default **frugal** (`keep_models:false`): the model is freed after each generation and reloaded on the
-next request — keeps host-process memory low (good for an embedded/VST context) and makes per-request LoRA
-strength correct for free. For a long-running service that wants lowest latency, send `keep_models:true`
+default **frugal** (`keep_models:false`): the model is freed after each generation and reloaded on the
+next request — keeps host-process memory low (good for an embedded/VST context) and makes per-request lora
+strength correct for free. for a long-running service that wants lowest latency, send `keep_models:true`
 and call `POST /unload` from your orchestrator when you need the VRAM back (model-switch, idle, pressure) —
-the same pattern as the PyTorch sa3 service.
+the same pattern as the pytorch sa3 service.
 
-## Notes
+## notes
 
-`/generate` covers the full pipeline — text2music, LoRA, audio2audio, and inpaint/continuation. The init
+`/generate` covers the full pipeline — text2music, lora, audio2audio, and inpaint/continuation. the init
 audio is passed as a **local file path** (`init_path`), which is the simple, correct thing for a localhost
 backend; a base64/multipart upload path could be added later if a *remote* or fully in-memory client ever
 needs it. For an in-process plugin/host, `libsa3` exposes the same init-audio path via

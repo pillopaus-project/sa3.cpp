@@ -1,6 +1,6 @@
-# Models
+# models
 
-The GGUF model set lives here (the default `SA3_MODELS_DIR`). One variant needs five files — its DiT, SAME
+the GGUF models live here (the default `SA3_MODELS_DIR`). one variant needs five files — its DiT, SAME
 autoencoder, and conditioner, plus the shared T5Gemma encoder + tokenizer:
 
 | File | Role |
@@ -15,21 +15,20 @@ autoencoder, and conditioner, plus the shared T5Gemma encoder + tokenizer:
 production path; `F32` is for CPU / bit-exact validation. The conditioner, encoder, and tokenizer are small and
 quality-critical, so they're always F32.
 
-## Get them (no Python)
+## get them (no python)
 
 ```bash
 ./models.sh                          # medium f16   (Windows: models.cmd)
 ./models.sh --variant small-music    # or small-sfx; --encoding f32; --out DIR
 ```
 
-Or download by hand from HuggingFace:
+or download by hand from huggingface:
 
 - https://huggingface.co/thepatch/stable-audio-3-medium-GGUF
 - https://huggingface.co/thepatch/stable-audio-3-small-music-GGUF
 - https://huggingface.co/thepatch/stable-audio-3-small-sfx-GGUF
 - https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF  (shared encoder + tokenizer)
 
-`sa3-generate --model <variant>` resolves this set from the naming convention above. LoRA adapters resolve the
+`sa3-generate --model <variant>` resolves this set from the naming convention above. lora adapters resolve the
 same way (`lora-<name>-*.gguf`) — see [`../loras`](../loras).
 
-The `.gguf` files are gitignored; only this README is tracked.

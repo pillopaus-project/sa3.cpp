@@ -1,19 +1,21 @@
-# Embedding sa3 in a host app (libsa3)
+# embedding sa3 in a host app (libsa3)
+
+**some stuff we learned while building an iPlug2 vst just for sa3 medium. small won't have to worry about some of this.**
 
 `libsa3` is a tiny C ABI over the same generation pipeline the CLI and server use, so you can call
 sa3 **in-process** from a host — a JUCE / IPlug2 plugin, a game, any C or C++ program — with no CLI
 subprocess and no HTTP. The header is [`src/libsa3.h`](../src/libsa3.h); the pipeline it wraps is
 [`src/sa3_pipeline.h`](../src/sa3_pipeline.h).
 
-> ✅ **Validated end-to-end in a real plugin:** [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)
+> ✅ **validated end-to-end in a real plugin:** [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)
 > embeds `libsa3` in an IPlug2 VST3 / standalone (text2music, transform/audio2audio, continue/inpaint, LoRAs,
-> in-process `.safetensors`→gguf conversion). The guidance below is what actually shook out — including the
+> in-process `.safetensors`→gguf conversion). the guidance below is what actually shook out — including the
 > footguns. [`tools/sa3-libtest.c`](../tools/sa3-libtest.c) is the minimal pure-C usage example; the demo is the
 > full one.
 
-## The API
+## the api
 
-Full contract is in [`src/libsa3.h`](../src/libsa3.h). The shape:
+full contract is in [`src/libsa3.h`](../src/libsa3.h). The shape:
 
 ```c
 sa3_context* ctx = sa3_init(&cfg, err, sizeof err);        // load the models (blocks ~seconds)
@@ -26,16 +28,16 @@ sa3_unload(ctx);   // optional: drop the models (free VRAM), keep ctx; next gene
 sa3_free(ctx);     // destroy
 ```
 
-- **Zero-initialize** every struct (`{0}` / `memset 0`); a `0`/`NULL` field means "default".
-- **Errors** don't throw — failures return `NULL`/non-zero and fill your `err` buffer.
-- **Not reentrant** — serialize `sa3_generate` calls on a given context (one at a time).
-- **Ownership** — `sa3_generate` allocates `audio.samples`; release it with `sa3_free_audio` (same
+- **zero-initialize** every struct (`{0}` / `memset 0`); a `0`/`NULL` field means "default".
+- **errors** don't throw — failures return `NULL`/non-zero and fill your `err` buffer.
+- **not reentrant** — serialize `sa3_generate` calls on a given context (one at a time).
+- **ownership** — `sa3_generate` allocates `audio.samples`; release it with `sa3_free_audio` (same
   library/CRT — don't `free()` it yourself across the DLL boundary).
-- **LoRAs** — pass adapter names (resolved in the adapters dir) or full paths via the parallel `lora_names`/
+- **loras** — pass adapter names (resolved in the adapters dir) or full paths via the parallel `lora_names`/
   `lora_strengths` arrays. `sa3_convert_lora(safetensors, json, out_gguf, ...)` converts a `.safetensors`
   adapter to gguf in-process (no Python) — the demo calls it on import.
 
-Use `sa3_generate_ex` for audio2audio / inpaint **and** for the chunk/cancel controls below — even for plain
+use `sa3_generate_ex` for audio2audio / inpaint **and** for the chunk/cancel controls below — even for plain
 text2music you'll want it (chunked decode + cooperative cancel live on `sa3_request_ex`):
 
 ```c
@@ -58,7 +60,7 @@ req.encode_chunk_size = 128; req.encode_overlap = 32;   // REQUIRED to encode lo
 sa3_generate_ex(ctx, &req, &audio, err, sizeof err);
 ```
 
-## What you build and ship
+## what you build and ship
 
 `libsa3` is a normal build target, produced alongside the tools by the build scripts:
 
@@ -76,7 +78,7 @@ sa3_generate_ex(ctx, &req, &audio, err, sizeof err);
 
 On Unix/macOS the library is `libsa3.so` / `libsa3.dylib` (ship it + the `libggml*` set).
 
-## Load the DLL yourself — don't import it at module load
+## load the DLL yourself — don't import it at module load
 
 The footgun: if the plugin **statically imports** `sa3.dll` (links `sa3.lib`), strict VST3 hosts fail the plugin
 during scan when they can't resolve `sa3.dll` + all the `ggml*.dll` yet — the plugin never even shows up. The
@@ -99,18 +101,18 @@ auto sa3_init_fn = (decltype(&sa3_init))GetProcAddress(dll, "sa3_init");   // �
 `cudart64_*.dll` / `cublas*` ) beside your binary: `MyPlugin.vst3\Contents\x86_64-win\` for the VST3, next to the
 `.exe` for the standalone.
 
-**Models:** the DAW's working directory is unknown, so don't rely on the `"models"` default — pass an absolute
+**models:** the DAW's working directory is unknown, so don't rely on the `"models"` default — pass an absolute
 `sa3_config.models_dir` (bundle the ggufs, resolve the path at runtime, or read an env var like `SA3_MODELS_DIR`).
 
-## Threading — the part that matters
+## threading — the part that matters
 
 `sa3_init` and `sa3_generate` **block for seconds**. Two hard rules:
 
-- **Never** call either from `ProcessBlock` (the audio thread) — you'll stall the DAW and get dropouts.
-- **Never** call `sa3_init` in the plugin constructor — the host runs that during *scan*; a multi-second load
+- **never** call either from `ProcessBlock` (the audio thread) — you'll stall the DAW and get dropouts.
+- **never** call `sa3_init` in the plugin constructor — the host runs that during *scan*; a multi-second load
   there makes the DAW look hung (and see the DLL note above — don't even touch `sa3.dll` at construction).
 
-Everything model-related runs on a worker thread you own; the audio thread only ever reads a finished buffer.
+everything model-related runs on a worker thread you own; the audio thread only ever reads a finished buffer.
 Lazily `sa3_init` on the worker (not the ctor), generate, then hand a planar buffer to the audio thread via a
 mutex-guarded swap + an atomic flag. The demo's `RenderWorkerMain` in
 [`SA3IPlug2Demo.cpp`](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo/blob/main/SA3IPlug2Demo/SA3IPlug2Demo.cpp)
@@ -118,7 +120,7 @@ is the worked example.
 
 ## `keep_models` — the 8 GB reality (use `0`)
 
-Counterintuitive but important: on a memory-tight GPU (the demo targets an **8 GB laptop RTX 5070**),
+counterintuitive but important: on a memory-tight GPU (the demo targets an **8 GB laptop RTX 5070**),
 **`keep_models = 0` (frugal / early-free) is the right default in a DAW, and effectively required for long
 text2music.**
 
@@ -129,23 +131,23 @@ text2music.**
   resident (e.g. a 120 s render: ~2 s decode early-free vs tens of seconds thrashing resident). See
   [BENCHMARKS.md](BENCHMARKS.md).
 
-So: frugal by default; only consider `keep_models = 1` for short clips on a big-VRAM card, and expose
+so: frugal by default; only consider `keep_models = 1` for short clips on a big-VRAM card, and expose
 `sa3_unload(ctx)` (e.g. when the plugin is hidden/idle) to hand VRAM back.
 
-## Chunked encode/decode — required for long audio
+## chunked encode/decode — required for long audio
 
-The sliding-window autoencoder must be **outer-chunked** for long clips or you'll hit crashes/hangs building one
-giant graph. Set them on `sa3_request_ex`:
+the sliding-window autoencoder must be **outer-chunked** for long clips or you'll hit crashes/hangs building one
+giant graph. set them on `sa3_request_ex`:
 
 - **`decode_chunk_size = 128, decode_overlap = 32`** — for *every* mode's decode (text2music included). This is
   what makes long output decode safely.
 - **`encode_chunk_size = 128, encode_overlap = 32`** — for transform/continue, to encode long *init* audio.
 
-(These are SAME-L; they're no-ops on SAME-S, which chunks internally. `0` = monolithic — fine only for short clips.)
+(these are SAME-L; they're no-ops on SAME-S, which chunks internally. `0` = monolithic — fine only for short clips.)
 
-## Cancellation — so closing mid-render can't crash the host
+## cancellation — so closing mid-render can't crash the host
 
-Long renders must be abortable, and plugin teardown must not `join()` a worker that's still deep in `generate`.
+long renders must be abortable, and plugin teardown must not `join()` a worker that's still deep in `generate`.
 libsa3 supports a **cooperative cancel callback** on `sa3_request_ex`:
 
 ```c
@@ -162,13 +164,12 @@ demo uses and verifies a cooperative cancel exits cleanly without output audio:
 sa3-libcancel ./models
 ```
 
-## Caveats you'll actually feel
+## caveats you'll actually feel
 
 - **VRAM per instance.** Each plugin instance that calls `sa3_init` loads its **own** model (several GB for
   medium). Ten instances = ten models. This host-contention reality is exactly *why* the networked path (one
   shared `sa3-server`, see [SERVER.md](SERVER.md)) exists — libsa3 is for single-instance / embedded / no-network
   cases.
-- **Load latency.** `sa3_init` is multi-second — show a "loading model…" state; use the progress callback for a %.
 - **Which backend to ship.** The CUDA `sa3.dll` needs a CUDA GPU + driver on the user's machine. For a portable
   plugin ship a **CPU or Vulkan** build instead (slower, runs anywhere) — same `sa3.dll` name, different
-  `ggml-*.dll` set.
+  `ggml-*.dll` set. 

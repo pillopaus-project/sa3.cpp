@@ -1,4 +1,4 @@
-# sa3.cpp — Tensor map (stable-audio-3-medium)
+# sa3.cpp — Tensor map (stable-audio-3-medium) (claude's notes)
 
 Derived from the real `model.safetensors` header (997 tensors, **all F32**). Full dump:
 [tensors-medium.txt](tensors-medium.txt). This is the spec the GGUF converter implements.
