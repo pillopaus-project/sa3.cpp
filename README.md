@@ -9,14 +9,6 @@ because this is my first ggml project, i wanted to be the first to actually run 
 - the **http server** (`sa3-server`) drives [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) - an ableton extension (their new node-based framework for right-click/context-menu tools)
 - **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo) - a quick vst/standalone plugin.
 
-`sa3-libcancel` is a small C ABI smoke test for embedded hosts. It calls `sa3_generate_ex` with
-the same frugal/chunked text2music request shape used by the iPlug2 demo and verifies that a
-cooperative cancellation callback exits cleanly without output audio:
-
-```bash
-sa3-libcancel ./models
-```
-
 ## quickstart
 
 ```bash
