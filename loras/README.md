@@ -22,4 +22,10 @@ torch artifact).
 adapter types dora-rows and bora are validated end-to-end against trained checkpoints (cossim 1.0); dora-cols and
 the `-xs` variants are formula-validated. See the main README.
 
-**a note about prompts** sa3 loras really like it when you use prompts from your training data. because of this i use helpers to populate 'dice' buttons in downstream apps. you don't have to take advantage of them, but i find it super useful, especially when blending multiple loras. you'll get a prompt from any one of your loaded loras. if you keep your .safetensors file in the same folder as the .txt files you trained with, the http server and libsa3 will automatically register the prompt pools. 
+**a note about prompts.** sa3 loras really like it when you use prompts from your training data, so i use
+helpers to populate 'dice' buttons in downstream apps. you don't have to take advantage of them, but i find it
+super useful, especially when blending multiple loras (you'll get a prompt from any one of your loaded loras).
+keep the `.txt` files you trained with in the same folder as your adapter and downstream apps (like the
+[iplug2 demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)) pick them up as a prompt pool; the
+http server reads the `.json` pools in [`../prompts`](../prompts). (`libsa3` itself just generates — prompt
+pools are the app's job.) 
