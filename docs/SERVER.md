@@ -17,10 +17,10 @@ for progress and, on completion, the base64 audio. That makes it a drop-in for a
 #       --source-loras-dir DIR (or SA3_SOURCE_LORAS_DIR)
 ```
 
-on Windows, after `.\build.cmd cuda`, this keeps the server in the terminal you can close or Ctrl+C:
+on Windows, after `.\build.cmd cuda`, `server.cmd` picks the built backend and keeps the server in the terminal (close it or Ctrl+C to stop). extra args pass through:
 
 ```powershell
-.\scripts\run-server.ps1
+.\server.cmd                       # or: .\server.cmd --model small-music --port 9000
 ```
 
 it binds to `127.0.0.1` by default (local only). The model loads lazily on the first `/generate`.
