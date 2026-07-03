@@ -4,7 +4,12 @@ trying to make this as composable and extensible as i can without over-engineeri
 
 it might allow me to start unifying gary4local for mac and pc. 
 
-it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md). i'll test that out shortly in a dead-simple app now that we have the libsa3. 
+it might also just allow us to embed sa3 directly inside a JUCE/IPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md).
+
+because this is my first ggml project, i wanted to be the first to actually run it in downstream apps instead of just benchmarking it. so both surfaces are already tested end-to-end:
+
+- the **http server** (`sa3-server`) drives [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) — a max for live / ableton device.
+- **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo) — a dead-simple vst/standalone plugin.
 
 `sa3-libcancel` is a small C ABI smoke test for embedded hosts. It calls `sa3_generate_ex` with
 the same frugal/chunked text2music request shape used by the IPlug2 demo and verifies that a
