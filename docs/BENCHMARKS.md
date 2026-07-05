@@ -123,3 +123,27 @@ backend thread count; `SA3_THREADS=N` does the same for any surface.
 for a longer radio-style chunk on the same CPU, `--duration 60 --steps 4
 --duration-padding 0` took 25.6s at the build default thread count and 9.4s
 with `--threads 24`.
+
+## CPU backend variants (small-music)
+
+On Windows, `build.cmd cpu-variants` builds a CPU-only `GGML_BACKEND_DL=ON`
+tree with `GGML_CPU_ALL_VARIANTS=ON`. GGML then loads the highest-scoring
+supported `ggml-cpu-*.dll` at startup without requiring CUDA or Vulkan SDKs.
+
+testing ground: Intel Core Ultra 9 275HX, `small-music` f16,
+`--duration 30 --steps 1 --duration-padding 0 --threads 8`. Each variant was
+forced by running from a temp directory containing only that CPU backend DLL.
+
+| backend | loaded DLL | total | t5_compute | dit_compute | dec_compute |
+|---|---|---:|---:|---:|---:|
+| stock native CPU | linked/static | 6.79 s | 0.17 s | 1.64 s | 3.27 s |
+| x64 | `ggml-cpu-x64.dll` | 43.43 s | 1.65 s | 13.99 s | 26.02 s |
+| sse42 | `ggml-cpu-sse42.dll` | 43.21 s | 1.69 s | 13.67 s | 26.16 s |
+| sandybridge | `ggml-cpu-sandybridge.dll` | 80.60 s | 0.19 s | 27.31 s | 51.27 s |
+| haswell | `ggml-cpu-haswell.dll` | 6.57 s | 0.18 s | 1.61 s | 3.08 s |
+| alderlake | `ggml-cpu-alderlake.dll` | 6.45 s | 0.15 s | 1.52 s | 3.11 s |
+
+Takeaway: SAME-S CPU performance really wants an AVX2/FMA/F16C-class backend.
+Generic/SSE fallback is too slow for realtime goals; the runtime variant bundle
+is mainly useful for shipping one CPU package that can still select the best
+backend available on the user's machine.

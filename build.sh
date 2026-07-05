@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Build sa3.cpp for one backend into its own build dir (backends coexist for A/B testing).
 #
-# Usage: ./build.sh [cpu|cuda|vulkan|hip|metal|all]   (default: cpu)
-#   cpu     -> build/         portable, no GPU
-#   cuda    -> build-cuda/    NVIDIA (needs CUDA Toolkit; arch auto-detected)
-#   vulkan  -> build-vulkan/  any GPU (needs the Vulkan SDK to compile shaders)
-#   hip     -> build-hip/     AMD/ROCm (needs ROCm/HIP)
-#   metal   -> build-metal/   Apple GPU (macOS only)
-#   all     -> build-all/     one binary, all GPU backends loaded at runtime (GGML_BACKEND_DL)
+# Usage: ./build.sh [cpu|cpu-variants|cuda|vulkan|hip|metal|all]   (default: cpu)
+#   cpu           -> build/              native CPU, no GPU
+#   cpu-variants  -> build-cpu-variants/ CPU-only runtime CPU variant selection
+#   cuda          -> build-cuda/         NVIDIA (needs CUDA Toolkit; arch auto-detected)
+#   vulkan        -> build-vulkan/       any GPU (needs the Vulkan SDK to compile shaders)
+#   hip           -> build-hip/          AMD/ROCm (needs ROCm/HIP)
+#   metal         -> build-metal/        Apple GPU (macOS only)
+#   all           -> build-all/          one binary, all GPU backends loaded at runtime (GGML_BACKEND_DL)
 #
 # On macOS, cpu/all also pick up Metal + Accelerate automatically via ggml.
 set -eu
@@ -18,6 +19,9 @@ UNAME="$(uname -s)"
 
 case "$BACKEND" in
     cpu)    DIR=build         ; FLAGS="-DGGML_CUDA=OFF" ;;
+    cpu-variants)
+            DIR=build-cpu-variants
+            FLAGS="-DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_CUDA=OFF -DSA3_CUDA=OFF -DSA3_VULKAN=OFF" ;;
     cuda)   DIR=build-cuda    ; FLAGS="-DSA3_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native" ;;
     vulkan) DIR=build-vulkan  ; FLAGS="-DSA3_VULKAN=ON" ;;
     hip)    DIR=build-hip     ; FLAGS="-DSA3_HIP=ON" ;;
@@ -31,7 +35,7 @@ case "$BACKEND" in
         else
             FLAGS="-DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DSA3_CUDA=ON -DSA3_VULKAN=ON"
         fi ;;
-    *) echo "unknown backend: '$BACKEND' (cpu|cuda|vulkan|hip|metal|all)" >&2; exit 1 ;;
+    *) echo "unknown backend: '$BACKEND' (cpu|cpu-variants|cuda|vulkan|hip|metal|all)" >&2; exit 1 ;;
 esac
 
 echo "[sa3] configuring $BACKEND -> $DIR/"

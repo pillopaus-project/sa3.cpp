@@ -4,7 +4,6 @@
 #pragma once
 
 #include "ggml.h"
-#include "ggml-cpu.h"
 #include "ggml-backend.h"
 #include "gguf.h"
 
@@ -83,9 +82,23 @@ inline int cpu_threads_from_env() {
     return (int)n;
 }
 
+inline void load_dynamic_backends_once() {
+    static bool loaded = false;
+    if (!loaded) {
+        ggml_backend_load_all();
+        loaded = true;
+    }
+}
+
 inline void configure_cpu_threads(ggml_backend_t b, int n_threads) {
-    if (b && n_threads > 0 && ggml_backend_is_cpu(b)) {
-        ggml_backend_cpu_set_n_threads(b, n_threads);
+    if (!b || n_threads <= 0) return;
+    ggml_backend_dev_t dev = ggml_backend_get_device(b);
+    if (!dev || ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_CPU) return;
+    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+    auto set_threads = (ggml_backend_set_n_threads_t)
+        ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
+    if (set_threads) {
+        set_threads(b, n_threads);
         fprintf(stderr, "[sa3] CPU threads: %d\n", n_threads);
     }
 }
@@ -102,6 +115,7 @@ inline void configure_cpu_threads(ggml_backend_t b, int n_threads) {
 // a 0-based index into the GPU/iGPU list, or a case-insensitive substring of the device name
 // (e.g. SA3_GPU=nvidia). CUDA builds expose a single GPU device, so this is a no-op there.
 inline ggml_backend_t make_backend(int cpu_threads = 0) {
+    load_dynamic_backends_once();
     const char* dev = getenv("SA3_DEVICE");
     if (!(dev && strcmp(dev, "cpu") == 0)) {
         // Collect all GPU/iGPU devices in registry order.
@@ -164,10 +178,16 @@ inline ggml_backend_t make_backend(int cpu_threads = 0) {
             }
         }
     }
-    ggml_backend_t b = ggml_backend_cpu_init();
+    ggml_backend_t b = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
     if (b) {
         configure_cpu_threads(b, cpu_threads > 0 ? cpu_threads : cpu_threads_from_env());
-        fprintf(stderr, "[sa3] backend: %s\n", ggml_backend_name(b));
+        ggml_backend_dev_t d = ggml_backend_get_device(b);
+        if (d) {
+            fprintf(stderr, "[sa3] backend: %s (%s)\n",
+                    ggml_backend_name(b), ggml_backend_dev_description(d));
+        } else {
+            fprintf(stderr, "[sa3] backend: %s\n", ggml_backend_name(b));
+        }
     }
     return b;
 }

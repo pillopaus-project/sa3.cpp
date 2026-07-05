@@ -3,13 +3,14 @@
 // machine) and runs a trivial tensor add to confirm compute works.
 #include "ggml.h"
 #include "ggml-backend.h"
-#include "ggml-cpu.h"
 
 #include <cstdio>
 #include <vector>
 
 int main() {
     printf("sa3.cpp smoke test\n");
+
+    ggml_backend_load_all();
 
     const size_t n_dev = ggml_backend_dev_count();
     printf("ggml backend devices: %zu\n", n_dev);
@@ -31,7 +32,11 @@ int main() {
     }
 
     // Trivial compute check on the CPU backend: c = a + b.
-    ggml_backend_t backend = ggml_backend_cpu_init();
+    ggml_backend_t backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+    if (!backend) {
+        fprintf(stderr, "failed to initialize CPU backend\n");
+        return 1;
+    }
     struct ggml_init_params p = { 16 * 1024 * 1024, nullptr, true };
     struct ggml_context* ctx = ggml_init(p);
     struct ggml_tensor* a = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 4);

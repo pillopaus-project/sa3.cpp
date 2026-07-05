@@ -3,6 +3,7 @@ refs/
 
 # Build artifacts
 build/
+build-cpu-variants/
 build-cuda/
 build-vulkan/
 build-hip/
