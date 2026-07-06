@@ -127,6 +127,10 @@ inline bool init_train_lora_state(const GgufModel& dit, const std::vector<TrainL
     std::normal_distribution<float> normal(0.0f, 0.01f);
     const bool xs = adapter_type.size() >= 3 && adapter_type.compare(adapter_type.size() - 3, 3, "-xs") == 0;
     for (const TrainLoraTarget& t : targets) {
+        if (rank > t.in || rank > t.out) {
+            err = "rank is infeasible for target " + t.stem;
+            return false;
+        }
         TrainLoraParam p;
         p.target = t;
         ggml_tensor* w = dit.get(t.weight_name);

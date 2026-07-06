@@ -1,0 +1,71 @@
+# LoRA Checkpoint Contract Audit
+
+Source-of-truth files: `src/lora.h`, `src/lora_convert.h`, `src/train_checkpoint.h`, `tools/convert_lora.py`, `tools/lora_ckpt_export.py`, and `tools/lora_spec_test.py`.
+
+## GGUF metadata
+
+A training checkpoint must be a GGUF adapter with:
+
+- `general.architecture = "sa3-lora"`
+- `general.name = "sa3 <adapter_type> adapter"` or equivalent descriptive name
+- `lora.adapter_type`: one of the supported adapter families below
+- `lora.rank`: nonzero integer
+- `lora.alpha`: float
+- `lora.n_targets`: count of distinct mapped DiT target modules
+
+`src/lora.h::load_lora()` requires `lora.rank` and `lora.alpha`; `lora.adapter_type` defaults to `lora` if absent, but new checkpoints should always write it.
+
+## Tensor names and shapes
+
+For each adapted base DiT weight named `<stem>.weight`, adapter tensors are named `<stem>.<kind>`.
+
+Standard low-rank families:
+
+- `<stem>.lora_A`: shape `[rank, in]` in PyTorch/safetensors order; loaded by ggml as `ne=[in, rank]`.
+- `<stem>.lora_B`: shape `[out, rank]` in PyTorch/safetensors order; loaded by ggml as `ne=[rank, out]`.
+- `<stem>.magnitude`: required for `dora-rows` (`[out]`) and `dora-cols` (`[in]`).
+- `<stem>.magnitude_r`: required for `bora` (`[out]`).
+- `<stem>.magnitude_c`: required for `bora` (`[in]`).
+
+XS families:
+
+- `<stem>.U`: shape `[out, rank]`.
+- `<stem>.V`: shape `[in, rank]`.
+- `<stem>.M_xs`: shape `[rank, rank]`.
+- Plus the same magnitude tensors required by the corresponding normalized family.
+
+Runtime formulas are pinned by `tools/lora_spec_test.py`: `lora`/`lora-xs` are additive; `dora-rows` normalizes rows and uses magnitude `[out]`; `dora-cols` normalizes columns and uses magnitude `[in]`; `bora` applies row normalization with `magnitude_r` then column normalization with `magnitude_c`.
+
+## Supported adapter families
+
+The loader contract supports:
+
+- `lora`
+- `dora-rows`
+- `dora-cols`
+- `bora`
+- feasible `-xs` variants: `lora-xs`, `dora-rows-xs`, `dora-cols-xs`, `bora-xs`
+
+Training initialization rejects ranks larger than either dimension of a target weight. The current ggml training graph is strongest for standard low-rank families; checkpoint loading/generation retains the broader host-side adapter contract above.
+
+## DiT target naming rules
+
+Training checkpoints must use existing DiT GGUF stems, not PyTorch module names. Export/conversion maps a PyTorch LoRA key:
+
+`<module>.parametrizations.weight.0.<kind>`
+
+where `<kind>` is one of `lora_A`, `lora_B`, `magnitude`, `magnitude_r`, `magnitude_c`, `U`, `V`, `M_xs`, by:
+
+1. accepting only modules beginning with `model.`;
+2. constructing `model.model.<module_without_model_prefix>.weight`;
+3. applying the DiT rename table from `src/lora_convert.h::dit_rename()` / `tools/convert_dit.py`;
+4. stripping the final `.weight` to get `<stem>`;
+5. writing `<stem>.<kind>`.
+
+Unmapped or non-DiT modules, such as conditioners, are skipped.
+
+Mapped DiT stems include top-level weights such as `dit.pre_conv`, `dit.post_conv`, `dit.cond_embed.{0,2}`, `dit.global_embed.{0,2}`, `dit.proj_in`, `dit.proj_out`, and per-layer stems such as `dit.<i>.self.qkv`, `dit.<i>.self.out`, `dit.<i>.cross.q`, `dit.<i>.cross.kv`, `dit.<i>.cross.out`, `dit.<i>.ff.proj`, `dit.<i>.ff.out`, `dit.<i>.local.{0,2}` when their source names map to `.weight` tensors. Biases/gammas/memory tokens are present in the rename table but are not LoRA weight targets unless they map from a parametrized `.weight` module.
+
+## Loader filename contract
+
+`sa3-generate --lora <path>` accepts an existing file directly. `--lora <name>` resolves in the adapters directory as `lora-<name>-*.gguf`. Training outputs intended for bare-name loading should therefore be named like `lora-<run-name>-stepNNNN.gguf` or `lora-<run-name>-final.gguf`. Any `.gguf` path remains valid for explicit path loading.

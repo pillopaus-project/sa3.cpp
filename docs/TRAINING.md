@@ -9,7 +9,7 @@
 ./build.sh cuda
 ```
 
-CUDA is the target backend for real training runs. CPU builds are useful for parser, dataset, and checkpoint tests.
+CUDA is the target backend for real training runs. CPU builds are useful for parser, dataset, and checkpoint tests. See [NON_GPU_TESTS.md](NON_GPU_TESTS.md) for the registered CTest suite.
 
 ## Models
 
@@ -19,7 +19,7 @@ Download the base GGUF models first:
 python tools/download_models.py --variant medium
 ```
 
-`sa3-train --model medium --models-dir models` resolves the tokenizer, T5/Gemma encoder, conditioner, DiT, and SAME GGUFs with the same naming convention as `sa3-generate`.
+`sa3-train --model medium --models-dir models` resolves the tokenizer, T5/Gemma encoder, conditioner, DiT, and SAME GGUFs with the same naming convention as `sa3-generate`. Adapter checkpoint metadata and tensor shapes are documented in [lora_checkpoint_contract.md](lora_checkpoint_contract.md).
 
 ## Dataset
 

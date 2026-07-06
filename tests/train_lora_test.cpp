@@ -40,6 +40,13 @@ int main() {
     fails += expect(st.params[0].magnitude[0] > 5.47f && st.params[0].magnitude[0] < 5.48f, "dora row norm");
     fails += expect(sa3::init_train_lora_state(m, targets, "lora-xs", 3, 3.0f, 7, st, err), "init xs");
     fails += expect(st.params[0].U.size() == 24 && st.params[0].V.size() == 12 && st.params[0].M_xs.size() == 9, "xs shapes");
+    fails += expect(sa3::init_train_lora_state(m, targets, "bora-xs", 3, 3.0f, 7, st, err), "init bora xs");
+    fails += expect(st.params[0].U.size() == 24 && st.params[0].V.size() == 12 && st.params[0].M_xs.size() == 9,
+                    "bora xs low-rank shapes");
+    fails += expect(st.params[0].magnitude_r.size() == 8 && st.params[0].magnitude_c.size() == 4,
+                    "bora xs magnitude shapes");
+    fails += expect(!sa3::init_train_lora_state(m, targets, "lora", 9, 9.0f, 7, st, err),
+                    "infeasible rank rejected");
     ggml_tensor* A = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 4, 2);
     ggml_tensor* B = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 8);
     ggml_tensor* mag = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 8);

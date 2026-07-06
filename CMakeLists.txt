@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(sa3_cpp LANGUAGES C CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
@@ -33,6 +35,23 @@ if(SA3_HIP)
 endif()
 
 # Vanilla GGML (no custom ops needed — the whole SA3 stack is attention/linear/norm/conv1d).
+# Fresh checkouts that were not cloned with --recurse-submodules have an empty ggml/.
+# Initialize it here so clean CMake/CTest configure runs do not depend on out-of-tree copies.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ggml/CMakeLists.txt")
+    find_package(Git QUIET)
+    if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+        message(STATUS "Initializing ggml submodule")
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive ggml
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            RESULT_VARIABLE SA3_GGML_SUBMODULE_RESULT)
+    endif()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ggml/CMakeLists.txt")
+        message(FATAL_ERROR
+            "ggml checkout is missing. Run `git submodule update --init --recursive ggml` "
+            "from ${CMAKE_CURRENT_SOURCE_DIR} and reconfigure.")
+    endif()
+endif()
 add_subdirectory(ggml)
 
 # src/ is header-driven (acestep style); add library/tool targets here as phases land.
@@ -129,6 +148,29 @@ target_link_libraries(sa3-train-checkpoint-test PRIVATE sa3)
 add_executable(sa3-train-generation-test tests/train_generation_test.cpp vendor/yyjson/yyjson.c)
 target_link_libraries(sa3-train-generation-test PRIVATE sa3)
 target_include_directories(sa3-train-generation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
+
+if(BUILD_TESTING)
+    add_test(NAME sa3-train-config-test COMMAND sa3-train-config-test)
+    add_test(NAME sa3-train-dataset-test COMMAND sa3-train-dataset-test)
+    add_test(NAME sa3-train-model-paths-test COMMAND sa3-train-model-paths-test)
+    add_test(NAME sa3-train-audio-test COMMAND sa3-train-audio-test ${CMAKE_CURRENT_SOURCE_DIR}/../datasets/mnesia-audio-v1/test/audio/single-fluke.mp3)
+    add_test(NAME sa3-train-same-compile-test COMMAND sa3-train-same-compile-test)
+    add_test(NAME sa3-train-conditioning-compile-test COMMAND sa3-train-conditioning-compile-test)
+    add_test(NAME sa3-train-diffusion-test COMMAND sa3-train-diffusion-test)
+    add_test(NAME sa3-train-lora-test COMMAND sa3-train-lora-test)
+    add_test(NAME sa3-train-dit-compile-test COMMAND sa3-train-dit-compile-test)
+    add_test(NAME sa3-train-optimizer-test COMMAND sa3-train-optimizer-test)
+    add_test(NAME sa3-train-loop-compile-test COMMAND sa3-train-loop-compile-test)
+    add_test(NAME sa3-train-checkpoint-test COMMAND sa3-train-checkpoint-test)
+    add_test(NAME sa3-train-generation-test COMMAND sa3-train-generation-test)
+    set_tests_properties(
+        sa3-train-config-test sa3-train-dataset-test sa3-train-model-paths-test
+        sa3-train-audio-test sa3-train-same-compile-test sa3-train-conditioning-compile-test
+        sa3-train-diffusion-test sa3-train-lora-test sa3-train-dit-compile-test
+        sa3-train-optimizer-test sa3-train-loop-compile-test sa3-train-checkpoint-test
+        sa3-train-generation-test
+        PROPERTIES LABELS "non-gpu;training;lora")
+endif()
 
 # --- libsa3: C ABI shared library (embed sa3 in a host app; see src/libsa3.h) ---------------
 # Windows: sa3.dll + sa3.lib (import lib).  Unix/macOS: libsa3.so / libsa3.dylib.
