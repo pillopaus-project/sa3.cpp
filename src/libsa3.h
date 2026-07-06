@@ -41,10 +41,12 @@ typedef struct {
 } sa3_config;
 
 /* Extended init options. Keeps the original sa3_config layout intact for existing callers.
- * cpu_threads: 0 -> SA3_THREADS/default; >0 sets ggml CPU backend threads for this context. */
+ * cpu_threads: 0 -> SA3_THREADS/default; >0 sets ggml CPU backend threads for this context.
+ * device: NULL/"" -> SA3_DEVICE env then GPU-if-available; "cpu" -> force CPU backend. */
 typedef struct {
     sa3_config config;
     int cpu_threads;
+    const char* device;
 } sa3_config_ex;
 
 /* Optional progress callback. fraction is overall 0..1 (UI does *100); stage is

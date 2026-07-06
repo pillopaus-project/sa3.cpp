@@ -114,9 +114,14 @@ inline void configure_cpu_threads(ggml_backend_t b, int n_threads) {
 // GPU/APU is present, use that instead of silently falling back to CPU. SA3_GPU overrides this:
 // a 0-based index into the GPU/iGPU list, or a case-insensitive substring of the device name
 // (e.g. SA3_GPU=nvidia). CUDA builds expose a single GPU device, so this is a no-op there.
-inline ggml_backend_t make_backend(int cpu_threads = 0) {
+// device: explicit device request from the API (nullptr/empty falls back to the
+// SA3_DEVICE env var, so CLI usage is unchanged). "cpu" forces the CPU backend;
+// anything else selects a GPU (optionally narrowed by SA3_GPU) with CPU fallback.
+inline ggml_backend_t make_backend(int cpu_threads = 0, const char* device = nullptr) {
     load_dynamic_backends_once();
-    const char* dev = getenv("SA3_DEVICE");
+    std::string dev_str = (device && *device) ? device : "";
+    if (dev_str.empty()) { const char* e = getenv("SA3_DEVICE"); if (e) dev_str = e; }
+    const char* dev = dev_str.empty() ? nullptr : dev_str.c_str();
     if (!(dev && strcmp(dev, "cpu") == 0)) {
         // Collect all GPU/iGPU devices in registry order.
         std::vector<ggml_backend_dev_t> gpus;

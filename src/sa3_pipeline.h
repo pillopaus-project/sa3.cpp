@@ -402,9 +402,10 @@ public:
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
 
-    // Load all nets onto one shared backend (the GPU if available; SA3_DEVICE=cpu forces CPU).
+    // Load all nets onto one shared backend. device selects it (nullptr/empty ->
+    // GPU if available, else CPU; "cpu" forces CPU; SA3_DEVICE env is the fallback).
     // Throws std::runtime_error on a missing/!@#$ file. Idempotent guard: load() once per Pipeline.
-    void load(const ModelPaths& paths, int cpu_threads = 0);
+    void load(const ModelPaths& paths, int cpu_threads = 0, const char* device = nullptr);
     bool loaded() const { return loaded_; }
 
     // Run one generation. At entry it (re)loads any net a prior frugal (keep_models=false) call freed,
@@ -445,10 +446,10 @@ inline void Pipeline::ensure_nets_loaded() {
     nets_resident_ = true;
 }
 
-inline void Pipeline::load(const ModelPaths& paths, int cpu_threads) {
+inline void Pipeline::load(const ModelPaths& paths, int cpu_threads, const char* device) {
     if (loaded_) return;
     paths_ = paths;
-    backend_ = make_backend(cpu_threads);
+    backend_ = make_backend(cpu_threads, device);
     tok_ = Tokenizer::load(paths_.tok.c_str());
     ensure_nets_loaded();
     tc_ = T5GemmaConfig::from(TE_);

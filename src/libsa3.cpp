@@ -19,6 +19,7 @@ struct sa3_context {
     sa3::ModelPaths paths;
     std::string adapters_dir;
     int cpu_threads = 0;
+    std::string device;  // remembered so the frugal-reload path keeps the same backend
 };
 
 static void set_err(char* err, int n, const std::string& m) {
@@ -64,7 +65,7 @@ static int sa3_generate_impl(sa3_context* ctx, const sa3_request* req, const sa3
     try {
         if (!ctx->pipe) {   // reload after sa3_unload()
             ctx->pipe = std::make_unique<sa3::Pipeline>();
-            ctx->pipe->load(ctx->paths, ctx->cpu_threads);
+            ctx->pipe->load(ctx->paths, ctx->cpu_threads, ctx->device.empty() ? nullptr : ctx->device.c_str());
         }
         sa3::GenParams p;
         p.prompt = req->prompt ? req->prompt : "";
@@ -146,7 +147,7 @@ static int sa3_generate_impl(sa3_context* ctx, const sa3_request* req, const sa3
       catch (...)                     { set_err(err, err_len, "unknown error"); return 10; }
 }
 
-static sa3_context* sa3_init_impl(const sa3_config* cfg, int cpu_threads, char* err, int err_len) {
+static sa3_context* sa3_init_impl(const sa3_config* cfg, int cpu_threads, const char* device, char* err, int err_len) {
     try {
         if (cpu_threads < 0) { set_err(err, err_len, "cpu_threads must be positive"); return nullptr; }
         std::string models_dir = cfg && cfg->models_dir ? cfg->models_dir : "";
@@ -162,8 +163,9 @@ static sa3_context* sa3_init_impl(const sa3_config* cfg, int cpu_threads, char* 
         ctx->paths = mp;
         ctx->adapters_dir = adir;
         ctx->cpu_threads = cpu_threads;
+        if (device) ctx->device = device;
         ctx->pipe = std::make_unique<sa3::Pipeline>();
-        ctx->pipe->load(mp, ctx->cpu_threads);
+        ctx->pipe->load(mp, ctx->cpu_threads, device);
         return ctx.release();
     } catch (const std::exception& e) { set_err(err, err_len, e.what()); return nullptr; }
       catch (...)                     { set_err(err, err_len, "unknown error"); return nullptr; }
@@ -172,11 +174,12 @@ static sa3_context* sa3_init_impl(const sa3_config* cfg, int cpu_threads, char* 
 extern "C" {
 
 SA3_API sa3_context* sa3_init(const sa3_config* cfg, char* err, int err_len) {
-    return sa3_init_impl(cfg, 0, err, err_len);
+    return sa3_init_impl(cfg, 0, nullptr, err, err_len);
 }
 
 SA3_API sa3_context* sa3_init_ex(const sa3_config_ex* cfg, char* err, int err_len) {
-    return sa3_init_impl(cfg ? &cfg->config : nullptr, cfg ? cfg->cpu_threads : 0, err, err_len);
+    return sa3_init_impl(cfg ? &cfg->config : nullptr, cfg ? cfg->cpu_threads : 0,
+                         cfg ? cfg->device : nullptr, err, err_len);
 }
 
 SA3_API int sa3_generate(sa3_context* ctx, const sa3_request* req, sa3_audio* out, char* err, int err_len) {
