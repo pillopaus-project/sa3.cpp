@@ -27,6 +27,26 @@ static std::string read_text_file(const std::string& path) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+static std::string read_optional_text_file(const std::string& path) {
+    if (path.empty()) return {};
+    std::ifstream f(path);
+    if (!f) return {};
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+static std::string compose_train_prompt(const sa3::TrainConfig& cfg,
+                                        const sa3::TrainAudioCaptionPair& pair) {
+    const std::string caption = read_text_file(pair.caption_path);
+    const std::string lyrics = read_optional_text_file(pair.lyrics_path);
+    if (cfg.prompt_mode == "lyrics") {
+        return lyrics.empty() ? caption : ("Lyrics:\n" + lyrics);
+    }
+    if (cfg.prompt_mode == "caption-lyrics" && !lyrics.empty()) {
+        return caption + "\nLyrics:\n" + lyrics;
+    }
+    return caption;
+}
+
 static bool load_pairs_checked(const sa3::TrainConfig& cfg, const std::string& split,
                                sa3::TrainSplitManifest& manifest,
                                std::vector<sa3::TrainAudioCaptionPair>& pairs,
@@ -92,6 +112,7 @@ int main(int argc, char** argv) {
             snap << "duration_sec=" << cfg.duration_sec << "\n";
             snap << "seed=" << cfg.seed << "\n";
             snap << "output_dir=" << cfg.output_dir << "\n";
+            snap << "prompt_mode=" << cfg.prompt_mode << "\n";
         }
         {
             std::ofstream cmd(std::filesystem::path(cfg.output_dir) / "command.txt");
@@ -146,7 +167,7 @@ int main(int argc, char** argv) {
             sa3::TrainLatents latents;
             if (!sa3::encode_train_audio_to_latents(ae, sc, windowed, latents, err))
                 throw std::runtime_error(err);
-            const std::string caption = read_text_file(pair.caption_path);
+            const std::string caption = compose_train_prompt(cfg, pair);
             sa3::TrainConditioning conditioning;
             const float seconds = (float)windowed.n_samples / 44100.0f;
             if (!sa3::encode_train_caption_conditioning(tok, te, cond, tc, caption, seconds, conditioning, err))

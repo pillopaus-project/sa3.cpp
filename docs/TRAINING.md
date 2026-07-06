@@ -51,10 +51,17 @@ build-cuda/bin/sa3-train \
   --frames 128 \
   --batch-size 1 \
   --checkpoint-every 1 \
+  --prompt-mode caption \
   --out train-runs/mnesia-lora
 ```
 
 The current graph executes one physical sample at a time. Use `--batch-size 1`.
+
+`--prompt-mode caption` trains on the split caption text only. For lyric-aware
+experiments, use `--prompt-mode caption-lyrics`; if a sample has
+`lyrics_path` metadata, the trainer appends `Lyrics:` plus that lyric text to
+the caption before encoding the conditioning prompt. `--prompt-mode lyrics`
+uses lyric text alone when present and falls back to the caption otherwise.
 
 ## Outputs
 

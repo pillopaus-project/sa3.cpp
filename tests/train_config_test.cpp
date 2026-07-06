@@ -25,11 +25,14 @@ int main() {
         char a3[] = "--learning-rate=0.001";
         char a4[] = "--adapter-type";
         char a5[] = "dora-rows";
-        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3), arg(a4), arg(a5)};
-        fails += expect(sa3::train_parse_args(6, argv, c, err), "CLI parse succeeds");
+        char a6[] = "--prompt-mode";
+        char a7[] = "caption-lyrics";
+        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3), arg(a4), arg(a5), arg(a6), arg(a7)};
+        fails += expect(sa3::train_parse_args(8, argv, c, err), "CLI parse succeeds");
         fails += expect(c.rank == 16, "rank override");
         fails += expect(c.learning_rate > 0.00099f && c.learning_rate < 0.00101f, "learning rate override");
         fails += expect(c.adapter_type == "dora-rows", "adapter override");
+        fails += expect(c.prompt_mode == "caption-lyrics", "prompt mode override");
         fails += expect(sa3::validate_train_config(c, err), "validated CLI config");
     }
     {
@@ -77,6 +80,12 @@ int main() {
         c.adapter_type = "bad";
         std::string err;
         fails += expect(!sa3::validate_train_config(c, err), "bad adapter rejected");
+    }
+    {
+        sa3::TrainConfig c;
+        c.prompt_mode = "bad";
+        std::string err;
+        fails += expect(!sa3::validate_train_config(c, err), "bad prompt mode rejected");
     }
     if (fails) return 1;
     std::printf("train_config_test: ok\n");

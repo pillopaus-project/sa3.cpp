@@ -41,6 +41,7 @@ struct TrainConfig {
     std::string output_dir = "train-runs/sa3-lora";
     std::string resume_adapter;
     std::string optimizer = "adamw";
+    std::string prompt_mode = "caption";
     std::string eval_caption;
     int eval_every = 1;
     int generation_steps = 8;
@@ -125,6 +126,7 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "out" || key == "output-dir" || key == "output_dir") c.output_dir = value;
     else if (key == "resume-adapter" || key == "resume_adapter") c.resume_adapter = value;
     else if (key == "optimizer") c.optimizer = value;
+    else if (key == "prompt-mode" || key == "prompt_mode") c.prompt_mode = value;
     else if (key == "eval-caption" || key == "eval_caption") c.eval_caption = value;
     else if (key == "eval-every" || key == "eval_every") return set_i(c.eval_every);
     else if (key == "generation-steps" || key == "generation_steps") return set_i(c.generation_steps);
@@ -235,6 +237,10 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     if (c.batch_size <= 0) { err = "batch_size must be positive"; return false; }
     if (c.frames <= 0 && c.duration_sec <= 0.0f) { err = "frames or duration_sec must be positive"; return false; }
     if (c.optimizer != "adamw") { err = "unsupported optimizer: " + c.optimizer; return false; }
+    if (c.prompt_mode != "caption" && c.prompt_mode != "caption-lyrics" && c.prompt_mode != "lyrics") {
+        err = "unsupported prompt_mode: " + c.prompt_mode;
+        return false;
+    }
     return true;
 }
 
@@ -243,7 +249,8 @@ inline std::string train_config_usage(const char* argv0) {
     ss << "usage: " << argv0 << " [--config train.json] [training options]\n"
        << "core options: --model medium|small-music|small-sfx --models-dir DIR --dataset DIR --out DIR\n"
        << "adapter: --adapter-type lora|dora-rows|dora-cols|bora|*-xs --rank N --alpha F\n"
-       << "optimization: --learning-rate F --batch-size N --frames N --duration SEC --seed N\n";
+       << "optimization: --learning-rate F --batch-size N --frames N --duration SEC --seed N\n"
+       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics\n";
     return ss.str();
 }
 
