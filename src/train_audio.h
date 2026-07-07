@@ -17,7 +17,30 @@ struct TrainAudio {
     int sample_rate = 0;
 };
 
-inline std::string shell_quote_single(const std::string& s) {
+// popen/pclose spelling differs on MSVC; wrap so the decode path is portable.
+inline FILE* sa3_popen(const char* cmd, const char* mode) {
+#ifdef _WIN32
+    return _popen(cmd, mode);
+#else
+    return popen(cmd, mode);
+#endif
+}
+
+inline int sa3_pclose(FILE* f) {
+#ifdef _WIN32
+    return _pclose(f);
+#else
+    return pclose(f);
+#endif
+}
+
+inline std::string shell_quote_path(const std::string& s) {
+#ifdef _WIN32
+    // _popen runs the command through cmd.exe, where single quotes are not special;
+    // wrap the path in double quotes instead (file paths do not contain '"').
+    return "\"" + s + "\"";
+#else
+    // POSIX sh: single-quote and escape any embedded single quotes.
     std::string out = "'";
     for (char c : s) {
         if (c == '\'') out += "'\\''";
@@ -25,6 +48,7 @@ inline std::string shell_quote_single(const std::string& s) {
     }
     out += "'";
     return out;
+#endif
 }
 
 inline bool decode_mp3_planar_ffmpeg(const std::string& path, int target_sample_rate, int target_channels,
@@ -37,10 +61,10 @@ inline bool decode_mp3_planar_ffmpeg(const std::string& path, int target_sample_
         err = "target channel count must be positive";
         return false;
     }
-    const std::string cmd = "ffmpeg -v error -i " + shell_quote_single(path) +
+    const std::string cmd = "ffmpeg -v error -i " + shell_quote_path(path) +
         " -f f32le -acodec pcm_f32le -ac " + std::to_string(target_channels) +
         " -ar " + std::to_string(target_sample_rate) + " -";
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = sa3_popen(cmd.c_str(), "rb");   // "rb": binary mode matters on Windows
     if (!pipe) {
         err = "failed to start ffmpeg for " + path;
         return false;
@@ -57,13 +81,13 @@ inline bool decode_mp3_planar_ffmpeg(const std::string& path, int target_sample_
         if (n < buf.size()) {
             if (feof(pipe)) break;
             if (ferror(pipe)) {
-                pclose(pipe);
+                sa3_pclose(pipe);
                 err = "error reading decoded audio from ffmpeg for " + path;
                 return false;
             }
         }
     }
-    const int rc = pclose(pipe);
+    const int rc = sa3_pclose(pipe);
     if (rc != 0) {
         err = "ffmpeg failed while decoding " + path;
         return false;
