@@ -57,6 +57,14 @@ build-cuda/bin/sa3-train \
 
 The current graph executes one physical sample at a time. Use `--batch-size 1`.
 
+`--adapter-type` accepts `lora`, `dora-rows`, `dora-cols`, `bora`, and their `-xs`
+variants (`lora-xs`, `dora-rows-xs`, `dora-cols-xs`, `bora-xs`). The `-xs` families
+freeze `U`/`V` as the top-`rank` SVD bases of each base weight and train only the small
+`M_xs` core (plus DoRA/BoRA magnitudes). Those bases are computed natively by default;
+pass `--svd-bases bases.gguf` to load precomputed bases instead — generate them with
+`python tools/compute_svd_bases.py --dit models/... --rank 8 --out bases.gguf` for exact
+`torch.linalg.svd` parity with the reference implementation.
+
 `--prompt-mode caption` trains on the split caption text only. For lyric-aware
 experiments, use `--prompt-mode caption-lyrics`; if a sample has
 `lyrics_path` metadata, the trainer appends `Lyrics:` plus that lyric text to

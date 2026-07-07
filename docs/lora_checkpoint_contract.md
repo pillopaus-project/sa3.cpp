@@ -46,7 +46,7 @@ The loader contract supports:
 - `bora`
 - feasible `-xs` variants: `lora-xs`, `dora-rows-xs`, `dora-cols-xs`, `bora-xs`
 
-Training initialization rejects ranks larger than either dimension of a target weight. The current ggml training graph is strongest for standard low-rank families; checkpoint loading/generation retains the broader host-side adapter contract above.
+Training initialization rejects ranks larger than either dimension of a target weight. The ggml training graph implements every family above, including the `-xs` variants: for `-xs`, `U`/`V` are frozen top-rank SVD bases of the base weight and only the `M_xs` core (plus any DoRA/BoRA magnitudes) is trained, matching the reference forward `delta = U @ M_xs @ V^T`. By default `sa3-train` computes the SVD bases natively (randomized SVD); `--svd-bases <bases.gguf>` loads precomputed bases instead (generate them with `tools/compute_svd_bases.py` for exact `torch.linalg.svd` parity). Checkpoint loading/generation retains the broader host-side adapter contract above.
 
 ## DiT target naming rules
 

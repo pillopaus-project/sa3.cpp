@@ -136,12 +136,18 @@ int main(int argc, char** argv) {
         std::vector<sa3::TrainLoraTarget> targets = sa3::enumerate_train_lora_targets(dit);
         if (targets.empty()) throw std::runtime_error("no DiT LoRA targets found");
 
+        sa3::GgufModel svd_bases;
+        const bool have_bases = !cfg.svd_bases_path.empty();
+        if (have_bases) svd_bases = sa3::load_gguf(cfg.svd_bases_path.c_str(), backend);
+
         sa3::TrainLoraState lora;
         if (!cfg.resume_adapter.empty()) {
             if (!sa3::load_train_lora_gguf(cfg.resume_adapter, lora, err)) throw std::runtime_error(err);
-        } else if (!sa3::init_train_lora_state(dit, targets, cfg.adapter_type, cfg.rank, cfg.alpha, cfg.seed, lora, err)) {
+        } else if (!sa3::init_train_lora_state(dit, targets, cfg.adapter_type, cfg.rank, cfg.alpha, cfg.seed, lora, err,
+                                               have_bases ? &svd_bases : nullptr)) {
             throw std::runtime_error(err);
         }
+        if (have_bases) svd_bases.free();
 
         const int target_samples = cfg.duration_sec > 0.0f ? (int)(cfg.duration_sec * 44100.0f + 0.5f)
                                                            : cfg.frames * sc.patch_size * sc.output_seg;

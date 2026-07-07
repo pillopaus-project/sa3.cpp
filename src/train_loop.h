@@ -17,6 +17,7 @@ struct TrainLoopState {
     int step = 0;
     std::vector<TrainAdamWTensorState> A_state;
     std::vector<TrainAdamWTensorState> B_state;
+    std::vector<TrainAdamWTensorState> mxs_state;
     std::vector<TrainAdamWTensorState> mag_state;
     std::vector<TrainAdamWTensorState> mag_r_state;
     std::vector<TrainAdamWTensorState> mag_c_state;
@@ -26,6 +27,7 @@ struct TrainLoraGradAccum {
     int count = 0;
     std::vector<std::vector<float>> A;
     std::vector<std::vector<float>> B;
+    std::vector<std::vector<float>> mxs;
     std::vector<std::vector<float>> mag;
     std::vector<std::vector<float>> mag_r;
     std::vector<std::vector<float>> mag_c;
@@ -35,8 +37,11 @@ inline void upload_train_lora_state(const TrainLoraState& state, const TrainDitG
     for (size_t i = 0; i < state.params.size(); ++i) {
         const TrainLoraParam& hp = state.params[i];
         const TrainDitParamTensors& tp = graph.params[i];
-        ggml_backend_tensor_set(tp.lora_A, hp.lora_A.data(), 0, hp.lora_A.size() * sizeof(float));
-        ggml_backend_tensor_set(tp.lora_B, hp.lora_B.data(), 0, hp.lora_B.size() * sizeof(float));
+        if (tp.lora_A) ggml_backend_tensor_set(tp.lora_A, hp.lora_A.data(), 0, hp.lora_A.size() * sizeof(float));
+        if (tp.lora_B) ggml_backend_tensor_set(tp.lora_B, hp.lora_B.data(), 0, hp.lora_B.size() * sizeof(float));
+        if (tp.U) ggml_backend_tensor_set(tp.U, hp.U.data(), 0, hp.U.size() * sizeof(float));
+        if (tp.V) ggml_backend_tensor_set(tp.V, hp.V.data(), 0, hp.V.size() * sizeof(float));
+        if (tp.M_xs) ggml_backend_tensor_set(tp.M_xs, hp.M_xs.data(), 0, hp.M_xs.size() * sizeof(float));
         if (tp.magnitude) ggml_backend_tensor_set(tp.magnitude, hp.magnitude.data(), 0, hp.magnitude.size() * sizeof(float));
         if (tp.magnitude_r) ggml_backend_tensor_set(tp.magnitude_r, hp.magnitude_r.data(), 0, hp.magnitude_r.size() * sizeof(float));
         if (tp.magnitude_c) ggml_backend_tensor_set(tp.magnitude_c, hp.magnitude_c.data(), 0, hp.magnitude_c.size() * sizeof(float));
@@ -71,6 +76,7 @@ inline bool train_accumulate_adamw_gradients(TrainDitGraph& graph, const TrainLo
                                              TrainLoraGradAccum& accum, std::string& err) {
     accum.A.resize(state.params.size());
     accum.B.resize(state.params.size());
+    accum.mxs.resize(state.params.size());
     accum.mag.resize(state.params.size());
     accum.mag_r.resize(state.params.size());
     accum.mag_c.resize(state.params.size());
@@ -79,12 +85,21 @@ inline bool train_accumulate_adamw_gradients(TrainDitGraph& graph, const TrainLo
     bool found = false;
     for (size_t i = 0; i < state.params.size(); ++i) {
         const TrainDitParamTensors& tp = graph.params[i];
-        if (!train_read_grad(graph.graph, tp.lora_A, grad, found, err)) return false;
-        any_grad = any_grad || found;
-        train_accum_add(accum.A[i], grad);
-        if (!train_read_grad(graph.graph, tp.lora_B, grad, found, err)) return false;
-        any_grad = any_grad || found;
-        train_accum_add(accum.B[i], grad);
+        if (tp.lora_A) {
+            if (!train_read_grad(graph.graph, tp.lora_A, grad, found, err)) return false;
+            any_grad = any_grad || found;
+            train_accum_add(accum.A[i], grad);
+        }
+        if (tp.lora_B) {
+            if (!train_read_grad(graph.graph, tp.lora_B, grad, found, err)) return false;
+            any_grad = any_grad || found;
+            train_accum_add(accum.B[i], grad);
+        }
+        if (tp.M_xs) {
+            if (!train_read_grad(graph.graph, tp.M_xs, grad, found, err)) return false;
+            any_grad = any_grad || found;
+            train_accum_add(accum.mxs[i], grad);
+        }
         if (tp.magnitude) {
             if (!train_read_grad(graph.graph, tp.magnitude, grad, found, err)) return false;
             any_grad = any_grad || found;
@@ -125,15 +140,24 @@ inline bool train_apply_accumulated_adamw(TrainLoraState& state, TrainLoraGradAc
     loop.step += 1;
     loop.A_state.resize(state.params.size());
     loop.B_state.resize(state.params.size());
+    loop.mxs_state.resize(state.params.size());
     loop.mag_state.resize(state.params.size());
     loop.mag_r_state.resize(state.params.size());
     loop.mag_c_state.resize(state.params.size());
     for (size_t i = 0; i < state.params.size(); ++i) {
         TrainLoraParam& hpv = state.params[i];
-        train_average_grad(accum.A[i], accum.count);
-        if (!adamw_update_vector(hpv.lora_A, accum.A[i], loop.A_state[i], hp, loop.step, err)) return false;
-        train_average_grad(accum.B[i], accum.count);
-        if (!adamw_update_vector(hpv.lora_B, accum.B[i], loop.B_state[i], hp, loop.step, err)) return false;
+        if (!hpv.lora_A.empty()) {
+            train_average_grad(accum.A[i], accum.count);
+            if (!adamw_update_vector(hpv.lora_A, accum.A[i], loop.A_state[i], hp, loop.step, err)) return false;
+        }
+        if (!hpv.lora_B.empty()) {
+            train_average_grad(accum.B[i], accum.count);
+            if (!adamw_update_vector(hpv.lora_B, accum.B[i], loop.B_state[i], hp, loop.step, err)) return false;
+        }
+        if (!hpv.M_xs.empty()) {
+            train_average_grad(accum.mxs[i], accum.count);
+            if (!adamw_update_vector(hpv.M_xs, accum.mxs[i], loop.mxs_state[i], hp, loop.step, err)) return false;
+        }
         if (!hpv.magnitude.empty()) {
             train_average_grad(accum.mag[i], accum.count);
             if (!adamw_update_vector(hpv.magnitude, accum.mag[i], loop.mag_state[i], hp, loop.step, err)) return false;

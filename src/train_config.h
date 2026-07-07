@@ -41,6 +41,7 @@ struct TrainConfig {
     std::string output_dir = "train-runs/sa3-lora";
     std::string resume_adapter;
     std::string optimizer = "adamw";
+    std::string svd_bases_path;   // optional GGUF of frozen U/V bases for -xs adapters (exact-parity path)
     std::string prompt_mode = "caption";
     std::string eval_caption;
     int eval_every = 1;
@@ -126,6 +127,7 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "out" || key == "output-dir" || key == "output_dir") c.output_dir = value;
     else if (key == "resume-adapter" || key == "resume_adapter") c.resume_adapter = value;
     else if (key == "optimizer") c.optimizer = value;
+    else if (key == "svd-bases" || key == "svd_bases" || key == "svd-bases-path" || key == "svd_bases_path") c.svd_bases_path = value;
     else if (key == "prompt-mode" || key == "prompt_mode") c.prompt_mode = value;
     else if (key == "eval-caption" || key == "eval_caption") c.eval_caption = value;
     else if (key == "eval-every" || key == "eval_every") return set_i(c.eval_every);

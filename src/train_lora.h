@@ -2,6 +2,7 @@
 #pragma once
 
 #include "gguf_model.h"
+#include "train_svd.h"
 
 #include <algorithm>
 #include <cmath>
@@ -39,8 +40,11 @@ struct TrainLoraState {
 };
 
 struct TrainLoraGraphParam {
-    ggml_tensor* lora_A = nullptr;      // [in, rank]
-    ggml_tensor* lora_B = nullptr;      // [rank, out]
+    ggml_tensor* lora_A = nullptr;      // [in, rank]        (standard families)
+    ggml_tensor* lora_B = nullptr;      // [rank, out]       (standard families)
+    ggml_tensor* U = nullptr;           // [rank, out]       (-xs: frozen SVD basis)
+    ggml_tensor* V = nullptr;           // [rank, in]        (-xs: frozen SVD basis)
+    ggml_tensor* M_xs = nullptr;        // [rank, rank]      (-xs: trainable core)
     ggml_tensor* magnitude = nullptr;   // dora rows [out] or cols [in]
     ggml_tensor* magnitude_r = nullptr; // bora rows [out]
     ggml_tensor* magnitude_c = nullptr; // bora cols [in]
@@ -70,7 +74,13 @@ inline std::vector<TrainLoraTarget> enumerate_train_lora_targets(const GgufModel
 inline void train_tensor_to_f32(ggml_tensor* t, std::vector<float>& out) {
     const int64_t n = ggml_nelements(t);
     out.resize((size_t)n);
-    if (t->buffer) {
+    if (t->type == GGML_TYPE_F16) {                       // convert f16 base weights correctly
+        std::vector<ggml_fp16_t> tmp((size_t)n);
+        if (t->buffer) ggml_backend_tensor_get(t, tmp.data(), 0, tmp.size() * sizeof(ggml_fp16_t));
+        else if (t->data) std::memcpy(tmp.data(), t->data, tmp.size() * sizeof(ggml_fp16_t));
+        else { std::fill(out.begin(), out.end(), 0.0f); return; }
+        ggml_fp16_to_fp32_row(tmp.data(), out.data(), n);
+    } else if (t->buffer) {
         ggml_backend_tensor_get(t, out.data(), 0, out.size() * sizeof(float));
     } else if (t->data) {
         if (t->type == GGML_TYPE_F32) std::memcpy(out.data(), t->data, out.size() * sizeof(float));
@@ -112,9 +122,23 @@ inline std::vector<float> train_col_norms(ggml_tensor* w, int64_t in, int64_t ou
     return norms;
 }
 
+// Copy the first `rank` basis columns of a bases tensor stored ggml [stored_rank, rows]
+// (raw row-major [rows][stored_rank]) into dst as [rows][rank]. Returns false on shape mismatch.
+inline bool train_copy_svd_basis(ggml_tensor* t, int64_t rows, int rank, std::vector<float>& dst) {
+    if (!t || t->ne[1] != rows || t->ne[0] < rank) return false;
+    const int64_t sr = t->ne[0];
+    std::vector<float> raw;
+    train_tensor_to_f32(t, raw);
+    dst.resize((size_t)rows * rank);
+    for (int64_t r = 0; r < rows; ++r)
+        for (int a = 0; a < rank; ++a) dst[(size_t)r * rank + a] = raw[(size_t)r * sr + a];
+    return true;
+}
+
 inline bool init_train_lora_state(const GgufModel& dit, const std::vector<TrainLoraTarget>& targets,
                                   const std::string& adapter_type, int rank, float alpha,
-                                  unsigned long long seed, TrainLoraState& out, std::string& err) {
+                                  unsigned long long seed, TrainLoraState& out, std::string& err,
+                                  const GgufModel* svd_bases = nullptr) {
     if (rank <= 0) {
         err = "rank must be positive";
         return false;
@@ -135,11 +159,29 @@ inline bool init_train_lora_state(const GgufModel& dit, const std::vector<TrainL
         p.target = t;
         ggml_tensor* w = dit.get(t.weight_name);
         if (xs) {
-            p.U.resize((size_t)t.out * rank);
-            p.V.resize((size_t)t.in * rank);
+            // LoRA-XS: freeze U/V as the top-rank SVD bases of the base weight, train only M_xs.
+            // W is read as PyTorch [out, in] (ggml [in, out] raw -> W[o*in + i]); M_xs starts at 0
+            // so the adapter is a no-op at init, matching the reference implementation.
+            bool loaded = false;
+            if (svd_bases) {
+                ggml_tensor* Ut = svd_bases->has(t.stem + ".U") ? svd_bases->get(t.stem + ".U") : nullptr;
+                ggml_tensor* Vt = svd_bases->has(t.stem + ".V") ? svd_bases->get(t.stem + ".V") : nullptr;
+                if (Ut || Vt) {
+                    if (!train_copy_svd_basis(Ut, t.out, rank, p.U) ||
+                        !train_copy_svd_basis(Vt, t.in, rank, p.V)) {
+                        err = "svd bases shape mismatch for target " + t.stem;
+                        return false;
+                    }
+                    loaded = true;
+                }
+            }
+            if (!loaded) {
+                std::vector<float> wf;
+                train_tensor_to_f32(w, wf);
+                randomized_svd_topr(wf, (int)t.out, (int)t.in, rank,
+                                    seed + (unsigned long long)out.params.size() + 1, p.U, p.V);
+            }
             p.M_xs.assign((size_t)rank * rank, 0.0f);
-            for (float& v : p.U) v = normal(rng);
-            for (float& v : p.V) v = normal(rng);
         } else {
             p.lora_A.resize((size_t)rank * t.in);
             p.lora_B.assign((size_t)t.out * rank, 0.0f);
@@ -166,23 +208,38 @@ inline ggml_tensor* train_lora_apply_col_norm(ggml_context* ctx, ggml_tensor* v,
     return ggml_cont(ctx, ggml_transpose(ctx, ggml_mul(ctx, vn, mag)));
 }
 
+// Low-rank update delta in ggml [in, out] layout. Standard families use B@A; -xs families
+// use the frozen SVD bases with the trainable core, delta = U @ M_xs @ V^T (contracting rank).
+inline ggml_tensor* train_lora_delta(ggml_context* ctx, const TrainLoraGraphParam& p, bool xs) {
+    if (xs) {
+        ggml_tensor* pmv = ggml_mul_mat(ctx, p.M_xs, p.V); // [rank, in]
+        return ggml_mul_mat(ctx, pmv, p.U);                // [in, out]
+    }
+    return ggml_mul_mat(ctx, ggml_cont(ctx, ggml_transpose(ctx, p.lora_A)), p.lora_B); // [in, out]
+}
+
 inline ggml_tensor* train_lora_effective_weight(ggml_context* ctx, ggml_tensor* base,
                                                 const TrainLoraGraphParam& p,
                                                 const std::string& adapter_type,
                                                 int rank, float alpha) {
     const int64_t in = base->ne[0], out = base->ne[1];
-    ggml_tensor* delta = ggml_mul_mat(ctx, ggml_cont(ctx, ggml_transpose(ctx, p.lora_A)), p.lora_B);
-    ggml_tensor* v = ggml_add(ctx, base, ggml_scale(ctx, delta, alpha / (float)rank));
-    if (adapter_type == "lora") return v;
-    if (adapter_type == "dora-rows") {
+    // Upcast the (possibly f16) frozen base to f32 so all adapter math runs in full precision,
+    // matching the reference forward (W_2d = W.to(lora_A.dtype)). Adapter params are already f32.
+    ggml_tensor* w = base->type == GGML_TYPE_F32 ? base : ggml_cast(ctx, base, GGML_TYPE_F32);
+    const bool xs = adapter_type.size() >= 3 && adapter_type.compare(adapter_type.size() - 3, 3, "-xs") == 0;
+    const std::string fam = xs ? adapter_type.substr(0, adapter_type.size() - 3) : adapter_type;
+    ggml_tensor* delta = train_lora_delta(ctx, p, xs);
+    ggml_tensor* v = ggml_add(ctx, w, ggml_scale(ctx, delta, alpha / (float)rank));
+    if (fam == "lora") return v;
+    if (fam == "dora-rows") {
         ggml_tensor* mag = ggml_reshape_2d(ctx, p.magnitude, 1, out);
         ggml_tensor* vn = ggml_scale(ctx, ggml_rms_norm(ctx, v, 1e-12f), 1.0f / sqrtf((float)in));
         return ggml_mul(ctx, vn, mag);
     }
-    if (adapter_type == "dora-cols") {
+    if (fam == "dora-cols") {
         return train_lora_apply_col_norm(ctx, v, p.magnitude, in, out);
     }
-    if (adapter_type == "bora") {
+    if (fam == "bora") {
         ggml_tensor* mag_r = ggml_reshape_2d(ctx, p.magnitude_r, 1, out);
         ggml_tensor* rown = ggml_scale(ctx, ggml_rms_norm(ctx, v, 1e-12f), 1.0f / sqrtf((float)in));
         ggml_tensor* rowed = ggml_mul(ctx, rown, mag_r);

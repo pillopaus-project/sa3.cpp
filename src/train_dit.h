@@ -12,8 +12,11 @@ namespace sa3 {
 
 struct TrainDitParamTensors {
     std::string stem;
-    ggml_tensor* lora_A = nullptr;
-    ggml_tensor* lora_B = nullptr;
+    ggml_tensor* lora_A = nullptr;      // standard families (trainable)
+    ggml_tensor* lora_B = nullptr;      // standard families (trainable)
+    ggml_tensor* U = nullptr;           // -xs frozen basis (input, not trained)
+    ggml_tensor* V = nullptr;           // -xs frozen basis (input, not trained)
+    ggml_tensor* M_xs = nullptr;        // -xs trainable core
     ggml_tensor* magnitude = nullptr;
     ggml_tensor* magnitude_r = nullptr;
     ggml_tensor* magnitude_c = nullptr;
@@ -64,19 +67,35 @@ inline bool build_train_dit_forward_graph(GgufModel& dit, const DitConfig& dc, c
     out.target = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, dc.io, frames);
     for (ggml_tensor* t : {out.x, out.tfeat, out.cross, out.global, out.pos, out.ones, out.target}) ggml_set_input(t);
 
+    const bool xs = lora.adapter_type.size() >= 3 &&
+                    lora.adapter_type.compare(lora.adapter_type.size() - 3, 3, "-xs") == 0;
     std::vector<std::string> overridden;
     for (const TrainLoraParam& hp : lora.params) {
         TrainDitParamTensors tp;
         tp.stem = hp.target.stem;
-        tp.lora_A = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, hp.target.in, lora.rank);
-        tp.lora_B = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, lora.rank, hp.target.out);
-        ggml_set_param(tp.lora_A);
-        ggml_set_param(tp.lora_B);
-        ggml_set_input(tp.lora_A);
-        ggml_set_input(tp.lora_B);
         TrainLoraGraphParam gp;
-        gp.lora_A = tp.lora_A;
-        gp.lora_B = tp.lora_B;
+        if (xs) {
+            // Frozen SVD bases are graph inputs (uploaded, never trained); only M_xs is a parameter.
+            tp.U = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, lora.rank, hp.target.out);
+            tp.V = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, lora.rank, hp.target.in);
+            tp.M_xs = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, lora.rank, lora.rank);
+            ggml_set_input(tp.U);
+            ggml_set_input(tp.V);
+            ggml_set_param(tp.M_xs);
+            ggml_set_input(tp.M_xs);
+            gp.U = tp.U;
+            gp.V = tp.V;
+            gp.M_xs = tp.M_xs;
+        } else {
+            tp.lora_A = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, hp.target.in, lora.rank);
+            tp.lora_B = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, lora.rank, hp.target.out);
+            ggml_set_param(tp.lora_A);
+            ggml_set_param(tp.lora_B);
+            ggml_set_input(tp.lora_A);
+            ggml_set_input(tp.lora_B);
+            gp.lora_A = tp.lora_A;
+            gp.lora_B = tp.lora_B;
+        }
         if (!hp.magnitude.empty()) {
             tp.magnitude = ggml_new_tensor_1d(out.ctx, GGML_TYPE_F32, (int64_t)hp.magnitude.size());
             ggml_set_param(tp.magnitude);
