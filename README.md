@@ -6,7 +6,7 @@ it might also just allow us to embed sa3 directly inside a JUCE/iPlug2 project. 
 
 because this is my first ggml project, i wanted to be the first to actually run it in downstream apps instead of just benchmarking it. so both surfaces are already tested end-to-end:
 
-- the **http server** (`sa3-server`) as an optional backend in [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`)
+- the **http server** (`sa3-server`) as an optional backend in [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) — there's an [embedded version of the extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backends/embedded-sa3) now too, running libsa3 in-process
 - **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)
 
 ## quickstart
