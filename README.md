@@ -9,7 +9,7 @@ because this is my first ggml project, i wanted to be the first to actually run 
 - the **http server** (`sa3-server`) as an optional backend in [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) — there's an [embedded version of the extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backends/embedded-sa3) now too, running libsa3 in-process
 - **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)
 
-there's also a browser web UI for the `sa3-server` http backend being built and validated on [pillopaus-project's fork](https://github.com/pillopaus-project/sa3.cpp). it's not merged here yet while it shakes out, but it's a nice way to drive the server if you want one.
+there's also a browser web UI for the `sa3-server` http backend being built and validated on [pillopaus-project's fork](https://github.com/pillopaus-project/sa3.cpp).
 
 ## quickstart
 
