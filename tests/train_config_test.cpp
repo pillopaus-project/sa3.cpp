@@ -87,6 +87,43 @@ int main() {
         std::string err;
         fails += expect(!sa3::validate_train_config(c, err), "bad prompt mode rejected");
     }
+    {
+        // Stage 9/10 defaults + parsing: dist-shift canonicalization (case-insensitive) and cfg-dropout.
+        sa3::TrainConfig def;
+        fails += expect(def.dist_shift == "Full", "default dist_shift Full");
+        fails += expect(def.dist_shift_effective_length, "default effective-length true");
+        fails += expect(def.cfg_dropout_prob > 0.099f && def.cfg_dropout_prob < 0.101f, "default cfg_dropout 0.1");
+
+        sa3::TrainConfig c;
+        std::string err;
+        char a0[] = "test";
+        char a1[] = "--dist-shift";
+        char a2[] = "logsnr";
+        char a3[] = "--dist-shift-effective-length=false";
+        char a4[] = "--cfg-dropout-prob";
+        char a5[] = "0.0";
+        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3), arg(a4), arg(a5)};
+        fails += expect(sa3::train_parse_args(6, argv, c, err), "schedule CLI parse succeeds");
+        fails += expect(c.dist_shift == "LogSNR", "dist_shift canonicalized to LogSNR");
+        fails += expect(!c.dist_shift_effective_length, "effective-length overridden false");
+        fails += expect(c.cfg_dropout_prob == 0.0f, "cfg_dropout overridden 0");
+        fails += expect(sa3::validate_train_config(c, err), "validated schedule config");
+    }
+    {
+        sa3::TrainConfig c;
+        std::string err;
+        char a0[] = "test";
+        char a1[] = "--dist-shift";
+        char a2[] = "bogus";
+        char* argv[] = {arg(a0), arg(a1), arg(a2)};
+        fails += expect(!sa3::train_parse_args(3, argv, c, err), "bad dist_shift rejected");
+    }
+    {
+        sa3::TrainConfig c;
+        c.cfg_dropout_prob = 1.5f;
+        std::string err;
+        fails += expect(!sa3::validate_train_config(c, err), "out-of-range cfg_dropout rejected");
+    }
     if (fails) return 1;
     std::printf("train_config_test: ok\n");
     return 0;

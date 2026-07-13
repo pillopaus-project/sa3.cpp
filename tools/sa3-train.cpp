@@ -122,6 +122,7 @@ int main(int argc, char** argv) {
             snap << "timestep_sampler=" << cfg.timestep_sampler << "\n";
             snap << "dist_shift=" << cfg.dist_shift << "\n";
             snap << "dist_shift_effective_length=" << (cfg.dist_shift_effective_length ? "true" : "false") << "\n";
+            snap << "cfg_dropout_prob=" << cfg.cfg_dropout_prob << "\n";
         }
         {
             std::ofstream cmd(std::filesystem::path(cfg.output_dir) / "command.txt");
@@ -184,6 +185,8 @@ int main(int argc, char** argv) {
         const bool multi_epoch = cfg.max_steps > 0 || cfg.max_epochs > 0;
         std::mt19937_64 shuffle_rng(cfg.seed ^ 0x9e3779b97f4a7c15ULL);
         std::mt19937_64 crop_rng(cfg.seed ^ 0xd1b54a32d192ed03ULL);
+        std::mt19937_64 cfg_rng(cfg.seed ^ 0xa0761d6478bd642fULL);   // Stage 9: cfg-dropout stream
+        std::uniform_real_distribution<float> cfg_drop_dist(0.0f, 1.0f);
         std::vector<size_t> order(train_pairs.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
 
@@ -222,6 +225,15 @@ int main(int argc, char** argv) {
                 const int seconds_total = (int)std::ceil((double)decoded.n_samples / 44100.0);
                 if (!sa3::encode_train_caption_conditioning(tok, te, cond, tc, caption, (float)seconds_total, conditioning, err))
                     throw std::runtime_error(err);
+                // Stage 9: cfg-dropout. With prob cfg_dropout_prob, replace the cross-attention
+                // conditioning (prompt tokens + appended seconds token) with zeros, matching
+                // dit.py null_embed = zeros_like(cross_attn_cond); the global seconds embedding is
+                // kept. Draw per sample so batch_size>1 gets a per-element decision like bernoulli.
+                bool cfg_dropped = false;
+                if (cfg.cfg_dropout_prob > 0.0f && cfg_drop_dist(cfg_rng) < cfg.cfg_dropout_prob) {
+                    std::fill(conditioning.cross.begin(), conditioning.cross.end(), 0.0f);
+                    cfg_dropped = true;
+                }
                 if (!graph.ctx || graph_frames != latents.frames ||
                     graph_cond_dim != conditioning.cond_dim || graph_ctx_len != conditioning.ctx_len) {
                     sa3::free_train_dit_graph(graph);
@@ -253,10 +265,12 @@ int main(int argc, char** argv) {
                     if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
                     updated = true;
                 }
-                std::printf("epoch %d step %d id=%s t=%.4f loss=%.6f\n", epoch, loop.step, pair.id.c_str(), sample.t, loss);
+                std::printf("epoch %d step %d id=%s t=%.4f%s loss=%.6f\n", epoch, loop.step, pair.id.c_str(),
+                            sample.t, cfg_dropped ? " cfg_drop" : "", loss);
                 metrics << "{\"epoch\":" << epoch << ",\"update\":" << loop.step
                         << ",\"split\":\"train\",\"id\":\"" << pair.id
-                        << "\",\"t\":" << sample.t << ",\"loss\":" << loss << "}\n";
+                        << "\",\"t\":" << sample.t << ",\"cfg_drop\":" << (cfg_dropped ? 1 : 0)
+                        << ",\"loss\":" << loss << "}\n";
                 metrics.flush();
                 if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
                 if (cfg.max_steps > 0 && loop.step >= cfg.max_steps) stop = true;

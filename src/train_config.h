@@ -67,6 +67,11 @@ struct TrainConfig {
     // ceil(seconds_total * sr / downsampling_ratio) from the FULL source-file duration (the
     // pre-encode metadata is not updated for crops). false = the crop's latent frame count.
     bool dist_shift_effective_length = true;
+    // Classifier-free-guidance dropout (Stage 9). Per sample, with this probability the cross-
+    // attention conditioning (prompt tokens + appended seconds token) is replaced by zeros while
+    // the global seconds_total embedding is kept, matching dit.py's cfg_dropout (null_embed =
+    // zeros_like(cross_attn_cond)) and the inference unconditional pass. Reference default 0.1.
+    float cfg_dropout_prob = 0.1f;
 };
 
 // Canonicalize a dist-shift type name to the sa3_pipeline.h spelling. Accepts any case.
@@ -185,6 +190,7 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "dist-shift-effective-length" || key == "dist_shift_effective_length") {
         if (!train_parse_bool(value, c.dist_shift_effective_length)) { err = "invalid boolean for --" + key + ": " + value; return false; }
     }
+    else if (key == "cfg-dropout-prob" || key == "cfg_dropout_prob" || key == "cfg-dropout") return set_f(c.cfg_dropout_prob);
     else if (key == "random-crop" || key == "random_crop") {
         if (!train_parse_bool(value, c.random_crop)) { err = "invalid boolean for --" + key + ": " + value; return false; }
     }
@@ -305,6 +311,7 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     }
     if (c.max_steps < 0 || c.max_epochs < 0) { err = "max_steps/max_epochs must be non-negative"; return false; }
     if (c.grad_clip < 0.0f) { err = "grad_clip must be non-negative (0 = off)"; return false; }
+    if (c.cfg_dropout_prob < 0.0f || c.cfg_dropout_prob > 1.0f) { err = "cfg_dropout_prob must be in [0,1]"; return false; }
     return true;
 }
 
@@ -316,7 +323,7 @@ inline std::string train_config_usage(const char* argv0) {
        << "optimization: --learning-rate F --batch-size N --frames N --duration SEC --seed N\n"
        << "schedule: --timestep-sampler uniform|trunc_logit_normal --dist-shift none|full|flux|logsnr\n"
        << "          --dist-shift-effective-length BOOL (full-file effective length vs crop frames)\n"
-       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics\n";
+       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n";
     return ss.str();
 }
 
