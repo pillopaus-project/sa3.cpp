@@ -72,6 +72,16 @@ struct TrainConfig {
     // the global seconds_total embedding is kept, matching dit.py's cfg_dropout (null_embed =
     // zeros_like(cross_attn_cond)) and the inference unconditional pass. Reference default 0.1.
     float cfg_dropout_prob = 0.1f;
+    // Learning-rate scheduler (Stage 11). "constant" keeps learning_rate fixed (legacy). "inverse_lr"
+    // applies the reference InverseLR schedule per optimizer step (see train_optimizer.h inverse_lr).
+    // The lr_* params default to the ratatat-2 reference config, so "--lr-scheduler inverse_lr" alone
+    // reproduces it. warmup 0.995 gives a cold start (~0.5% of base lr on step 0) ramping over ~1k
+    // steps; inv_gamma 1e6 makes the inverse decay negligible over a few-thousand-step run.
+    std::string lr_scheduler = "constant";
+    float lr_inv_gamma = 1.0e6f;
+    float lr_power = 0.5f;
+    float lr_warmup = 0.995f;
+    float lr_final = 0.0f;
 };
 
 // Canonicalize a dist-shift type name to the sa3_pipeline.h spelling. Accepts any case.
@@ -191,6 +201,11 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
         if (!train_parse_bool(value, c.dist_shift_effective_length)) { err = "invalid boolean for --" + key + ": " + value; return false; }
     }
     else if (key == "cfg-dropout-prob" || key == "cfg_dropout_prob" || key == "cfg-dropout") return set_f(c.cfg_dropout_prob);
+    else if (key == "lr-scheduler" || key == "lr_scheduler" || key == "scheduler") c.lr_scheduler = value;
+    else if (key == "lr-inv-gamma" || key == "lr_inv_gamma" || key == "inv-gamma" || key == "inv_gamma") return set_f(c.lr_inv_gamma);
+    else if (key == "lr-power" || key == "lr_power") return set_f(c.lr_power);
+    else if (key == "lr-warmup" || key == "lr_warmup" || key == "warmup") return set_f(c.lr_warmup);
+    else if (key == "lr-final" || key == "lr_final" || key == "final-lr" || key == "final_lr") return set_f(c.lr_final);
     else if (key == "random-crop" || key == "random_crop") {
         if (!train_parse_bool(value, c.random_crop)) { err = "invalid boolean for --" + key + ": " + value; return false; }
     }
@@ -312,6 +327,16 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     if (c.max_steps < 0 || c.max_epochs < 0) { err = "max_steps/max_epochs must be non-negative"; return false; }
     if (c.grad_clip < 0.0f) { err = "grad_clip must be non-negative (0 = off)"; return false; }
     if (c.cfg_dropout_prob < 0.0f || c.cfg_dropout_prob > 1.0f) { err = "cfg_dropout_prob must be in [0,1]"; return false; }
+    if (c.lr_scheduler != "constant" && c.lr_scheduler != "inverse_lr" && c.lr_scheduler != "inverse-lr") {
+        err = "unsupported lr_scheduler (expected constant|inverse_lr): " + c.lr_scheduler;
+        return false;
+    }
+    if (c.lr_scheduler != "constant") {
+        if (c.lr_inv_gamma <= 0.0f) { err = "lr_inv_gamma must be positive"; return false; }
+        if (c.lr_power < 0.0f) { err = "lr_power must be non-negative"; return false; }
+        if (c.lr_warmup < 0.0f || c.lr_warmup >= 1.0f) { err = "lr_warmup must be in [0,1)"; return false; }
+        if (c.lr_final < 0.0f) { err = "lr_final must be non-negative"; return false; }
+    }
     return true;
 }
 
@@ -321,6 +346,7 @@ inline std::string train_config_usage(const char* argv0) {
        << "core options: --model medium|small-music|small-sfx --models-dir DIR --dataset DIR --out DIR\n"
        << "adapter: --adapter-type lora|dora-rows|dora-cols|bora|*-xs --rank N --alpha F\n"
        << "optimization: --learning-rate F --batch-size N --frames N --duration SEC --seed N\n"
+       << "          --lr-scheduler constant|inverse_lr [--lr-inv-gamma F --lr-power F --lr-warmup F --lr-final F]\n"
        << "schedule: --timestep-sampler uniform|trunc_logit_normal --dist-shift none|full|flux|logsnr\n"
        << "          --dist-shift-effective-length BOOL (full-file effective length vs crop frames)\n"
        << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n";

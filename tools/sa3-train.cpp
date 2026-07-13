@@ -123,6 +123,13 @@ int main(int argc, char** argv) {
             snap << "dist_shift=" << cfg.dist_shift << "\n";
             snap << "dist_shift_effective_length=" << (cfg.dist_shift_effective_length ? "true" : "false") << "\n";
             snap << "cfg_dropout_prob=" << cfg.cfg_dropout_prob << "\n";
+            snap << "lr_scheduler=" << cfg.lr_scheduler << "\n";
+            if (cfg.lr_scheduler != "constant") {
+                snap << "lr_inv_gamma=" << cfg.lr_inv_gamma << "\n";
+                snap << "lr_power=" << cfg.lr_power << "\n";
+                snap << "lr_warmup=" << cfg.lr_warmup << "\n";
+                snap << "lr_final=" << cfg.lr_final << "\n";
+            }
         }
         {
             std::ofstream cmd(std::filesystem::path(cfg.output_dir) / "command.txt");
@@ -173,6 +180,16 @@ int main(int argc, char** argv) {
         opt.grad_clip = cfg.grad_clip;
         sa3::TrainDiffusionSampler sampler(cfg.seed, cfg.timestep_sampler);
         sa3::TrainLoraGradAccum accum;
+
+        // Stage 11: per-step LR schedule. train_apply_accumulated_adamw increments loop.step at
+        // entry, so at the call site loop.step is the 0-indexed update index (PyTorch last_epoch).
+        auto scheduled_opt = [&]() {
+            sa3::TrainAdamWParams o = opt;
+            if (cfg.lr_scheduler != "constant")
+                o.learning_rate = sa3::inverse_lr(opt.learning_rate, loop.step, cfg.lr_inv_gamma,
+                                                  cfg.lr_power, cfg.lr_warmup, cfg.lr_final);
+            return o;
+        };
 
         // Stage 10: training-time dist-shift params (per-type defaults; sa3-medium trains with
         // "Full" base_shift 0.5 / max_shift 1.15 / min 256 / max 4096).
@@ -261,16 +278,19 @@ int main(int argc, char** argv) {
                 if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err))
                     throw std::runtime_error(err);
                 bool updated = false;
+                float applied_lr = opt.learning_rate;
                 if (accum.count >= cfg.batch_size) {
-                    if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
+                    sa3::TrainAdamWParams step_opt = scheduled_opt();
+                    applied_lr = step_opt.learning_rate;
+                    if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, step_opt, err)) throw std::runtime_error(err);
                     updated = true;
                 }
-                std::printf("epoch %d step %d id=%s t=%.4f%s loss=%.6f\n", epoch, loop.step, pair.id.c_str(),
-                            sample.t, cfg_dropped ? " cfg_drop" : "", loss);
+                std::printf("epoch %d step %d id=%s t=%.4f%s lr=%.3e loss=%.6f\n", epoch, loop.step, pair.id.c_str(),
+                            sample.t, cfg_dropped ? " cfg_drop" : "", applied_lr, loss);
                 metrics << "{\"epoch\":" << epoch << ",\"update\":" << loop.step
                         << ",\"split\":\"train\",\"id\":\"" << pair.id
                         << "\",\"t\":" << sample.t << ",\"cfg_drop\":" << (cfg_dropped ? 1 : 0)
-                        << ",\"loss\":" << loss << "}\n";
+                        << ",\"lr\":" << applied_lr << ",\"loss\":" << loss << "}\n";
                 metrics.flush();
                 if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
                 if (cfg.max_steps > 0 && loop.step >= cfg.max_steps) stop = true;
@@ -280,7 +300,8 @@ int main(int argc, char** argv) {
             if (cfg.max_epochs > 0 && epoch >= cfg.max_epochs) stop = true;
         }
         if (accum.count > 0) {
-            if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
+            sa3::TrainAdamWParams step_opt = scheduled_opt();
+            if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, step_opt, err)) throw std::runtime_error(err);
             if (cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
         }
 

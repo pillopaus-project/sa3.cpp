@@ -124,6 +124,32 @@ int main() {
         std::string err;
         fails += expect(!sa3::validate_train_config(c, err), "out-of-range cfg_dropout rejected");
     }
+    {
+        // Stage 11: lr scheduler defaults + parsing.
+        sa3::TrainConfig def;
+        fails += expect(def.lr_scheduler == "constant", "default scheduler constant");
+        fails += expect(def.lr_inv_gamma > 999999.0f && def.lr_inv_gamma < 1000001.0f, "default inv_gamma 1e6");
+        fails += expect(def.lr_warmup > 0.9949f && def.lr_warmup < 0.9951f, "default warmup 0.995");
+
+        sa3::TrainConfig c;
+        std::string err;
+        char a0[] = "test";
+        char a1[] = "--lr-scheduler";
+        char a2[] = "inverse_lr";
+        char a3[] = "--lr-power=1.0";
+        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3)};
+        fails += expect(sa3::train_parse_args(4, argv, c, err), "lr scheduler CLI parse");
+        fails += expect(c.lr_scheduler == "inverse_lr", "scheduler overridden");
+        fails += expect(c.lr_power > 0.999f && c.lr_power < 1.001f, "lr_power overridden");
+        fails += expect(sa3::validate_train_config(c, err), "validated scheduler config");
+    }
+    {
+        sa3::TrainConfig c;
+        c.lr_scheduler = "inverse_lr";
+        c.lr_warmup = 1.0f;   // out of [0,1)
+        std::string err;
+        fails += expect(!sa3::validate_train_config(c, err), "bad lr_warmup rejected");
+    }
     if (fails) return 1;
     std::printf("train_config_test: ok\n");
     return 0;
