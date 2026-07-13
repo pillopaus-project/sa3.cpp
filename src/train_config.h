@@ -46,7 +46,24 @@ struct TrainConfig {
     std::string eval_caption;
     int eval_every = 1;
     int generation_steps = 8;
+    // Multi-epoch training (Stage 1). 0 = single pass over the dataset (legacy). >0 = loop with
+    // per-epoch shuffle until this many optimizer updates. max_epochs caps passes when set.
+    int max_steps = 0;
+    int max_epochs = 0;
+    // Random-crop windowing (Stage 2): pick a random window start per sample instead of the
+    // fixed front (start=0) window. Matches the reference pre-encode + random-crop regime.
+    bool random_crop = false;
+    // Global gradient-norm clip (Stage 3): 0 = off. Reference training uses 1.0.
+    float grad_clip = 0.0f;
+    // Timestep sampler (Stage 5): "uniform" or "trunc_logit_normal" (the reference default).
+    std::string timestep_sampler = "uniform";
 };
+
+inline bool train_parse_bool(const std::string& text, bool& out) {
+    if (text == "1" || text == "true" || text == "yes" || text == "on")  { out = true;  return true; }
+    if (text == "0" || text == "false" || text == "no" || text == "off") { out = false; return true; }
+    return false;
+}
 
 inline bool train_parse_i32(const std::string& text, int& out) {
     char* end = nullptr;
@@ -132,6 +149,13 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "eval-caption" || key == "eval_caption") c.eval_caption = value;
     else if (key == "eval-every" || key == "eval_every") return set_i(c.eval_every);
     else if (key == "generation-steps" || key == "generation_steps") return set_i(c.generation_steps);
+    else if (key == "max-steps" || key == "max_steps") return set_i(c.max_steps);
+    else if (key == "max-epochs" || key == "max_epochs" || key == "epochs") return set_i(c.max_epochs);
+    else if (key == "grad-clip" || key == "grad_clip" || key == "gradient-clip-val") return set_f(c.grad_clip);
+    else if (key == "timestep-sampler" || key == "timestep_sampler") c.timestep_sampler = value;
+    else if (key == "random-crop" || key == "random_crop") {
+        if (!train_parse_bool(value, c.random_crop)) { err = "invalid boolean for --" + key + ": " + value; return false; }
+    }
     else {
         err = "unknown training option: " + key;
         return false;
@@ -243,6 +267,12 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
         err = "unsupported prompt_mode: " + c.prompt_mode;
         return false;
     }
+    if (c.timestep_sampler != "uniform" && c.timestep_sampler != "trunc_logit_normal") {
+        err = "unsupported timestep_sampler: " + c.timestep_sampler;
+        return false;
+    }
+    if (c.max_steps < 0 || c.max_epochs < 0) { err = "max_steps/max_epochs must be non-negative"; return false; }
+    if (c.grad_clip < 0.0f) { err = "grad_clip must be non-negative (0 = off)"; return false; }
     return true;
 }
 

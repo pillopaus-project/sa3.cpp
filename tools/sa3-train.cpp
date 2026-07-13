@@ -14,9 +14,11 @@
 #include "train_model_paths.h"
 #include "train_same.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -160,67 +162,87 @@ int main(int argc, char** argv) {
         opt.beta2 = cfg.adam_beta2;
         opt.eps = cfg.adam_eps;
         opt.weight_decay = cfg.weight_decay;
-        sa3::TrainDiffusionSampler sampler(cfg.seed);
+        opt.grad_clip = cfg.grad_clip;
+        sa3::TrainDiffusionSampler sampler(cfg.seed, cfg.timestep_sampler);
         sa3::TrainLoraGradAccum accum;
 
-        for (size_t i = 0; i < train_pairs.size(); ++i) {
-            const auto& pair = train_pairs[i];
-            sa3::TrainAudio decoded, windowed;
-            if (!sa3::decode_mp3_planar_ffmpeg(pair.audio_path, 44100, sc.out_channels / sc.patch_size, decoded, err))
-                throw std::runtime_error(err);
-            if (!sa3::prepare_train_audio_window(decoded, target_samples, 0, windowed, err))
-                throw std::runtime_error(err);
-            sa3::TrainLatents latents;
-            if (!sa3::encode_train_audio_to_latents(ae, sc, windowed, latents, err))
-                throw std::runtime_error(err);
-            const std::string caption = compose_train_prompt(cfg, pair);
-            sa3::TrainConditioning conditioning;
-            const float seconds = (float)windowed.n_samples / 44100.0f;
-            if (!sa3::encode_train_caption_conditioning(tok, te, cond, tc, caption, seconds, conditioning, err))
-                throw std::runtime_error(err);
-            if (!graph.ctx || graph_frames != latents.frames ||
-                graph_cond_dim != conditioning.cond_dim || graph_ctx_len != conditioning.ctx_len) {
-                sa3::free_train_dit_graph(graph);
-                if (!sa3::build_train_dit_forward_graph(dit, dc, lora, latents.frames,
-                                                        conditioning.cond_dim, conditioning.ctx_len, graph, err))
+        // Stage 1: multi-epoch loop. max_steps>0 or max_epochs>0 enables per-epoch shuffle and
+        // stops at max_steps optimizer updates; both 0 keeps the legacy single pass.
+        const bool multi_epoch = cfg.max_steps > 0 || cfg.max_epochs > 0;
+        std::mt19937_64 shuffle_rng(cfg.seed ^ 0x9e3779b97f4a7c15ULL);
+        std::mt19937_64 crop_rng(cfg.seed ^ 0xd1b54a32d192ed03ULL);
+        std::vector<size_t> order(train_pairs.size());
+        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+
+        auto do_checkpoint = [&]() {
+            const std::string ckpt = (std::filesystem::path(cfg.output_dir) /
+                ("adapter-step-" + std::to_string(loop.step) + ".gguf")).string();
+            if (!sa3::write_train_lora_gguf(lora, ckpt, err)) throw std::runtime_error(err);
+            std::printf("checkpoint: %s\n", ckpt.c_str());
+        };
+
+        int epoch = 0;
+        bool stop = false;
+        while (!stop) {
+            if (multi_epoch) std::shuffle(order.begin(), order.end(), shuffle_rng);
+            for (size_t oi = 0; oi < order.size() && !stop; ++oi) {
+                const auto& pair = train_pairs[order[oi]];
+                sa3::TrainAudio decoded, windowed;
+                if (!sa3::decode_mp3_planar_ffmpeg(pair.audio_path, 44100, sc.out_channels / sc.patch_size, decoded, err))
                     throw std::runtime_error(err);
-                graph.ctx_buf = ggml_backend_alloc_ctx_tensors(graph.ctx, dit.backend);
-                if (!graph.ctx_buf) throw std::runtime_error("failed to allocate DiT training graph tensors");
-                graph_frames = latents.frames;
-                graph_cond_dim = conditioning.cond_dim;
-                graph_ctx_len = conditioning.ctx_len;
+                // Stage 2: random-crop window start (fixed length -> the training graph is unchanged).
+                int crop_start = 0;
+                if (cfg.random_crop && decoded.n_samples > target_samples) {
+                    std::uniform_int_distribution<int> sd(0, decoded.n_samples - target_samples);
+                    crop_start = sd(crop_rng);
+                }
+                if (!sa3::prepare_train_audio_window(decoded, target_samples, crop_start, windowed, err))
+                    throw std::runtime_error(err);
+                sa3::TrainLatents latents;
+                if (!sa3::encode_train_audio_to_latents(ae, sc, windowed, latents, err))
+                    throw std::runtime_error(err);
+                const std::string caption = compose_train_prompt(cfg, pair);
+                sa3::TrainConditioning conditioning;
+                const float seconds = (float)windowed.n_samples / 44100.0f;
+                if (!sa3::encode_train_caption_conditioning(tok, te, cond, tc, caption, seconds, conditioning, err))
+                    throw std::runtime_error(err);
+                if (!graph.ctx || graph_frames != latents.frames ||
+                    graph_cond_dim != conditioning.cond_dim || graph_ctx_len != conditioning.ctx_len) {
+                    sa3::free_train_dit_graph(graph);
+                    if (!sa3::build_train_dit_forward_graph(dit, dc, lora, latents.frames,
+                                                            conditioning.cond_dim, conditioning.ctx_len, graph, err))
+                        throw std::runtime_error(err);
+                    graph.ctx_buf = ggml_backend_alloc_ctx_tensors(graph.ctx, dit.backend);
+                    if (!graph.ctx_buf) throw std::runtime_error("failed to allocate DiT training graph tensors");
+                    graph_frames = latents.frames;
+                    graph_cond_dim = conditioning.cond_dim;
+                    graph_ctx_len = conditioning.ctx_len;
+                }
+                sa3::TrainDiffusionSample sample;
+                if (!sampler.sample(latents.z, sample, err)) throw std::runtime_error(err);
+                float loss = 0.0f;
+                if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err))
+                    throw std::runtime_error(err);
+                bool updated = false;
+                if (accum.count >= cfg.batch_size) {
+                    if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
+                    updated = true;
+                }
+                std::printf("epoch %d step %d id=%s loss=%.6f\n", epoch, loop.step, pair.id.c_str(), loss);
+                metrics << "{\"epoch\":" << epoch << ",\"update\":" << loop.step
+                        << ",\"split\":\"train\",\"id\":\"" << pair.id
+                        << "\",\"loss\":" << loss << "}\n";
+                metrics.flush();
+                if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
+                if (cfg.max_steps > 0 && loop.step >= cfg.max_steps) stop = true;
             }
-            sa3::TrainDiffusionSample sample;
-            if (!sampler.sample(latents.z, sample, err)) throw std::runtime_error(err);
-            float loss = 0.0f;
-            if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err))
-                throw std::runtime_error(err);
-            bool updated = false;
-            if (accum.count >= cfg.batch_size) {
-                if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
-                updated = true;
-            }
-            std::printf("train %zu/%zu update=%d id=%s loss=%.6f\n",
-                        i + 1, train_pairs.size(), loop.step, pair.id.c_str(), loss);
-            metrics << "{\"sample\":" << (i + 1) << ",\"update\":" << loop.step
-                    << ",\"split\":\"train\",\"id\":\"" << pair.id
-                    << "\",\"loss\":" << loss << "}\n";
-            metrics.flush();
-            if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) {
-                const std::string ckpt = (std::filesystem::path(cfg.output_dir) /
-                    ("adapter-step-" + std::to_string(loop.step) + ".gguf")).string();
-                if (!sa3::write_train_lora_gguf(lora, ckpt, err)) throw std::runtime_error(err);
-                std::printf("checkpoint: %s\n", ckpt.c_str());
-            }
+            ++epoch;
+            if (!multi_epoch) break;
+            if (cfg.max_epochs > 0 && epoch >= cfg.max_epochs) stop = true;
         }
         if (accum.count > 0) {
             if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, opt, err)) throw std::runtime_error(err);
-            if (cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) {
-                const std::string ckpt = (std::filesystem::path(cfg.output_dir) /
-                    ("adapter-step-" + std::to_string(loop.step) + ".gguf")).string();
-                if (!sa3::write_train_lora_gguf(lora, ckpt, err)) throw std::runtime_error(err);
-                std::printf("checkpoint: %s\n", ckpt.c_str());
-            }
+            if (cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
         }
 
         const std::string final_ckpt = (std::filesystem::path(cfg.output_dir) / "adapter-final.gguf").string();

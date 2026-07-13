@@ -130,6 +130,33 @@ inline void train_average_grad(std::vector<float>& grad, int count) {
     for (float& v : grad) v *= inv;
 }
 
+// Average every accumulated gradient by count, then (if grad_clip > 0) scale them all so the
+// GLOBAL L2 norm across every trainable vector is <= grad_clip. Matches torch clip_grad_norm_
+// over all LoRA params, applied to the mean gradient of the accumulation window.
+inline void train_average_and_clip(TrainLoraGradAccum& accum, const TrainAdamWParams& hp) {
+    const int count = accum.count;
+    auto avg = [&](std::vector<float>& g) { if (count > 1) { const float inv = 1.0f/(float)count; for (float& v : g) v *= inv; } };
+    for (size_t i = 0; i < accum.A.size(); ++i) {
+        avg(accum.A[i]); avg(accum.B[i]); avg(accum.mxs[i]);
+        avg(accum.mag[i]); avg(accum.mag_r[i]); avg(accum.mag_c[i]);
+    }
+    if (hp.grad_clip <= 0.0f) return;
+    double sumsq = 0.0;
+    auto acc = [&](const std::vector<float>& g) { for (float v : g) sumsq += (double)v * v; };
+    for (size_t i = 0; i < accum.A.size(); ++i) {
+        acc(accum.A[i]); acc(accum.B[i]); acc(accum.mxs[i]);
+        acc(accum.mag[i]); acc(accum.mag_r[i]); acc(accum.mag_c[i]);
+    }
+    const double norm = std::sqrt(sumsq);
+    if (norm <= (double)hp.grad_clip) return;
+    const float scale = (float)((double)hp.grad_clip / (norm + 1e-6));
+    auto scl = [&](std::vector<float>& g) { for (float& v : g) v *= scale; };
+    for (size_t i = 0; i < accum.A.size(); ++i) {
+        scl(accum.A[i]); scl(accum.B[i]); scl(accum.mxs[i]);
+        scl(accum.mag[i]); scl(accum.mag_r[i]); scl(accum.mag_c[i]);
+    }
+}
+
 inline bool train_apply_accumulated_adamw(TrainLoraState& state, TrainLoraGradAccum& accum,
                                           TrainLoopState& loop, const TrainAdamWParams& hp,
                                           std::string& err) {
@@ -144,30 +171,25 @@ inline bool train_apply_accumulated_adamw(TrainLoraState& state, TrainLoraGradAc
     loop.mag_state.resize(state.params.size());
     loop.mag_r_state.resize(state.params.size());
     loop.mag_c_state.resize(state.params.size());
+    train_average_and_clip(accum, hp);   // mean over the accumulation window + global grad-norm clip
     for (size_t i = 0; i < state.params.size(); ++i) {
         TrainLoraParam& hpv = state.params[i];
         if (!hpv.lora_A.empty()) {
-            train_average_grad(accum.A[i], accum.count);
             if (!adamw_update_vector(hpv.lora_A, accum.A[i], loop.A_state[i], hp, loop.step, err)) return false;
         }
         if (!hpv.lora_B.empty()) {
-            train_average_grad(accum.B[i], accum.count);
             if (!adamw_update_vector(hpv.lora_B, accum.B[i], loop.B_state[i], hp, loop.step, err)) return false;
         }
         if (!hpv.M_xs.empty()) {
-            train_average_grad(accum.mxs[i], accum.count);
             if (!adamw_update_vector(hpv.M_xs, accum.mxs[i], loop.mxs_state[i], hp, loop.step, err)) return false;
         }
         if (!hpv.magnitude.empty()) {
-            train_average_grad(accum.mag[i], accum.count);
             if (!adamw_update_vector(hpv.magnitude, accum.mag[i], loop.mag_state[i], hp, loop.step, err)) return false;
         }
         if (!hpv.magnitude_r.empty()) {
-            train_average_grad(accum.mag_r[i], accum.count);
             if (!adamw_update_vector(hpv.magnitude_r, accum.mag_r[i], loop.mag_r_state[i], hp, loop.step, err)) return false;
         }
         if (!hpv.magnitude_c.empty()) {
-            train_average_grad(accum.mag_c[i], accum.count);
             if (!adamw_update_vector(hpv.magnitude_c, accum.mag_c[i], loop.mag_c_state[i], hp, loop.step, err)) return false;
         }
     }

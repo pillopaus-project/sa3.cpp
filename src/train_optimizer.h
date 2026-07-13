@@ -14,6 +14,7 @@ struct TrainAdamWParams {
     float beta2 = 0.999f;
     float eps = 1.0e-8f;
     float weight_decay = 0.0f;
+    float grad_clip = 0.0f;   // global gradient-norm clip; 0 = off (reference training uses 1.0)
 };
 
 struct TrainAdamWTensorState {
