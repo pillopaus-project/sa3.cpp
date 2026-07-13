@@ -33,6 +33,7 @@ int main() {
         fails += expect(c.learning_rate > 0.00099f && c.learning_rate < 0.00101f, "learning rate override");
         fails += expect(c.adapter_type == "dora-rows", "adapter override");
         fails += expect(c.prompt_mode == "caption-lyrics", "prompt mode override");
+        fails += expect(c.prompt_config_path.empty(), "prompt_config default empty");
         fails += expect(sa3::validate_train_config(c, err), "validated CLI config");
     }
     {
@@ -137,9 +138,12 @@ int main() {
         char a1[] = "--lr-scheduler";
         char a2[] = "inverse_lr";
         char a3[] = "--lr-power=1.0";
-        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3)};
-        fails += expect(sa3::train_parse_args(4, argv, c, err), "lr scheduler CLI parse");
+        char a4[] = "--prompt-config";
+        char a5[] = "ds.json";
+        char* argv[] = {arg(a0), arg(a1), arg(a2), arg(a3), arg(a4), arg(a5)};
+        fails += expect(sa3::train_parse_args(6, argv, c, err), "lr scheduler CLI parse");
         fails += expect(c.lr_scheduler == "inverse_lr", "scheduler overridden");
+        fails += expect(c.prompt_config_path == "ds.json", "prompt_config path parsed");
         fails += expect(c.lr_power > 0.999f && c.lr_power < 1.001f, "lr_power overridden");
         fails += expect(sa3::validate_train_config(c, err), "validated scheduler config");
     }

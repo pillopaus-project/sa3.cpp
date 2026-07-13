@@ -44,6 +44,11 @@ struct TrainConfig {
     std::string optimizer = "adamw";
     std::string svd_bases_path;   // optional GGUF of frozen U/V bases for -xs adapters (exact-parity path)
     std::string prompt_mode = "caption";
+    // Prompt tag-composition (Stage 13). When set, per sample the prompt is composed from the
+    // dashboard-style prompt_config (tags/paths/fixed weighted choice) instead of using the raw
+    // caption; the caption feeds the `prompt` tag. Point this at the dataset.json (or a bare
+    // prompt_config object) used by the reference run. Empty => raw caption (--prompt-mode).
+    std::string prompt_config_path;
     std::string eval_caption;
     int eval_every = 1;
     int generation_steps = 8;
@@ -183,6 +188,7 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "optimizer") c.optimizer = value;
     else if (key == "svd-bases" || key == "svd_bases" || key == "svd-bases-path" || key == "svd_bases_path") c.svd_bases_path = value;
     else if (key == "prompt-mode" || key == "prompt_mode") c.prompt_mode = value;
+    else if (key == "prompt-config" || key == "prompt_config") c.prompt_config_path = value;
     else if (key == "eval-caption" || key == "eval_caption") c.eval_caption = value;
     else if (key == "eval-every" || key == "eval_every") return set_i(c.eval_every);
     else if (key == "generation-steps" || key == "generation_steps") return set_i(c.generation_steps);
@@ -349,7 +355,8 @@ inline std::string train_config_usage(const char* argv0) {
        << "          --lr-scheduler constant|inverse_lr [--lr-inv-gamma F --lr-power F --lr-warmup F --lr-final F]\n"
        << "schedule: --timestep-sampler uniform|trunc_logit_normal --dist-shift none|full|flux|logsnr\n"
        << "          --dist-shift-effective-length BOOL (full-file effective length vs crop frames)\n"
-       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n";
+       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n"
+       << "          --prompt-config dataset.json (tag/path prompt composition per sample)\n";
     return ss.str();
 }
 

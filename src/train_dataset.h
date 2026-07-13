@@ -22,6 +22,11 @@ struct TrainDatasetRecord {
     std::string lyrics_path;
     std::string audio_sha256;
     double duration_seconds = 0.0;
+    // Optional prompt-composition metadata (Stage 13). `tags` holds recognized tag keys
+    // (title/artist/album/genre/label/date/composer/bpm) if present in metadata.jsonl; `prompt`
+    // is sourced from the caption at train time. `relpath` feeds the path-based prompt method.
+    std::map<std::string, std::string> tags;
+    std::string relpath;
 };
 
 struct TrainSplitManifest {
@@ -42,6 +47,8 @@ struct TrainAudioCaptionPair {
     std::string lyrics_path;
     std::string audio_sha256;
     double duration_seconds = 0.0;
+    std::map<std::string, std::string> tags;   // Stage 13 prompt-composition tags (optional)
+    std::string relpath;                        // Stage 13 path-method source (optional)
 };
 
 inline std::string train_trim(std::string s) {
@@ -96,6 +103,12 @@ inline bool train_parse_manifest_line(const std::string& line, const std::string
     rec.lyrics_path = train_json_string(root, "lyrics_path");
     rec.audio_sha256 = train_json_string(root, "audio_sha256");
     rec.duration_seconds = train_json_number(root, "duration_seconds");
+    rec.relpath = train_json_string(root, "relpath");
+    for (const char* key : {"title", "artist", "album", "genre", "label", "date", "composer", "bpm"}) {
+        yyjson_val* v = yyjson_obj_get(root, key);
+        if (v && yyjson_is_str(v)) { std::string s = yyjson_get_str(v); if (!s.empty()) rec.tags[key] = s; }
+        else if (v && yyjson_is_num(v)) rec.tags[key] = std::to_string(yyjson_get_num(v));
+    }
     yyjson_doc_free(doc);
 
     if (rec.id.empty()) {
@@ -172,6 +185,11 @@ inline bool resolve_train_pairs(const TrainSplitManifest& m, std::vector<TrainAu
         p.lyrics_path = p.lyrics_rel.empty() ? std::string() : train_join_path(split_dir, p.lyrics_rel);
         p.audio_sha256 = r.audio_sha256;
         p.duration_seconds = r.duration_seconds;
+        p.tags = r.tags;
+        // Path-method source: explicit relpath if given, else the bare audio filename (dir-less,
+        // matching how the reference pre-encode stored a bare .npy relpath for this dataset).
+        p.relpath = r.relpath.empty() ? std::filesystem::path(p.audio_rel).filename().generic_string()
+                                      : r.relpath;
         if (p.id.empty()) {
             err = "cannot resolve empty id for " + p.audio_rel;
             return false;

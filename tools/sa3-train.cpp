@@ -12,6 +12,7 @@
 #include "train_dit.h"
 #include "train_loop.h"
 #include "train_model_paths.h"
+#include "train_prompt.h"
 #include "train_same.h"
 
 #include <algorithm>
@@ -49,6 +50,20 @@ static std::string compose_train_prompt(const sa3::TrainConfig& cfg,
     return caption;
 }
 
+// Stage 13: build the training prompt. With a prompt-config loaded, compose per sample from
+// tags/paths/fixed (the caption feeds the `prompt` tag); otherwise fall back to the caption/lyrics
+// modes. `prompt_rng` supplies the per-sample randomness (shuffle/subset/method choice).
+static std::string build_train_prompt(const sa3::TrainConfig& cfg, const sa3::PromptConfig& pcfg,
+                                      const sa3::TrainAudioCaptionPair& pair, std::mt19937_64& prompt_rng) {
+    if (!pcfg.loaded) return compose_train_prompt(cfg, pair);
+    sa3::PromptMetadata md;
+    md.tags = pair.tags;
+    md.tags["prompt"] = read_text_file(pair.caption_path);   // caption == the `prompt` tag
+    md.relpath = pair.relpath;
+    md.text = md.tags["prompt"];
+    return sa3::prompt_compose(pcfg, md, prompt_rng);
+}
+
 static bool load_pairs_checked(const sa3::TrainConfig& cfg, const std::string& split,
                                sa3::TrainSplitManifest& manifest,
                                std::vector<sa3::TrainAudioCaptionPair>& pairs,
@@ -75,6 +90,11 @@ int main(int argc, char** argv) {
         }
         sa3::ModelPaths paths;
         if (!sa3::resolve_train_model_paths(cfg, paths, err)) {
+            std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
+            return 1;
+        }
+        sa3::PromptConfig prompt_cfg;   // Stage 13: prompt tag-composition (empty => raw caption)
+        if (!cfg.prompt_config_path.empty() && !sa3::load_prompt_config(cfg.prompt_config_path, prompt_cfg, err)) {
             std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
             return 1;
         }
@@ -115,6 +135,7 @@ int main(int argc, char** argv) {
             snap << "seed=" << cfg.seed << "\n";
             snap << "output_dir=" << cfg.output_dir << "\n";
             snap << "prompt_mode=" << cfg.prompt_mode << "\n";
+            snap << "prompt_config=" << (cfg.prompt_config_path.empty() ? "(none)" : cfg.prompt_config_path) << "\n";
             snap << "max_steps=" << cfg.max_steps << "\n";
             snap << "max_epochs=" << cfg.max_epochs << "\n";
             snap << "random_crop=" << (cfg.random_crop ? "true" : "false") << "\n";
@@ -204,6 +225,7 @@ int main(int argc, char** argv) {
         std::mt19937_64 crop_rng(cfg.seed ^ 0xd1b54a32d192ed03ULL);
         std::mt19937_64 cfg_rng(cfg.seed ^ 0xa0761d6478bd642fULL);   // Stage 9: cfg-dropout stream
         std::uniform_real_distribution<float> cfg_drop_dist(0.0f, 1.0f);
+        std::mt19937_64 prompt_rng(cfg.seed ^ 0x2545f4914f6cdd1dULL); // Stage 13: prompt-composition stream
         std::vector<size_t> order(train_pairs.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
 
@@ -234,7 +256,7 @@ int main(int argc, char** argv) {
                 sa3::TrainLatents latents;
                 if (!sa3::encode_train_audio_to_latents(ae, sc, windowed, latents, err))
                     throw std::runtime_error(err);
-                const std::string caption = compose_train_prompt(cfg, pair);
+                const std::string caption = build_train_prompt(cfg, prompt_cfg, pair, prompt_rng);
                 sa3::TrainConditioning conditioning;
                 // Reference parity: seconds_total is the FULL source-file duration (ceil'd at
                 // pre-encode) and is not updated for the crop window. It feeds both the
@@ -285,8 +307,12 @@ int main(int argc, char** argv) {
                     if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, step_opt, err)) throw std::runtime_error(err);
                     updated = true;
                 }
-                std::printf("epoch %d step %d id=%s t=%.4f%s lr=%.3e loss=%.6f\n", epoch, loop.step, pair.id.c_str(),
-                            sample.t, cfg_dropped ? " cfg_drop" : "", applied_lr, loss);
+                // Truncated composed prompt, so the caption/path mix is visible when eyeballing runs.
+                std::string prompt_preview = caption.substr(0, 48);
+                for (char& ch : prompt_preview) if (ch == '\n' || ch == '\r') ch = ' ';
+                std::printf("epoch %d step %d id=%s t=%.4f%s lr=%.3e loss=%.6f prompt=\"%s%s\"\n",
+                            epoch, loop.step, pair.id.c_str(), sample.t, cfg_dropped ? " cfg_drop" : "",
+                            applied_lr, loss, prompt_preview.c_str(), caption.size() > 48 ? "..." : "");
                 metrics << "{\"epoch\":" << epoch << ",\"update\":" << loop.step
                         << ",\"split\":\"train\",\"id\":\"" << pair.id
                         << "\",\"t\":" << sample.t << ",\"cfg_drop\":" << (cfg_dropped ? 1 : 0)
