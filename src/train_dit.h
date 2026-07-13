@@ -5,6 +5,8 @@
 #include "gguf_model.h"
 #include "train_lora.h"
 
+#include "ggml-alloc.h"
+
 #include <string>
 #include <vector>
 
@@ -24,7 +26,8 @@ struct TrainDitParamTensors {
 
 struct TrainDitGraph {
     ggml_context* ctx = nullptr;
-    ggml_backend_buffer_t ctx_buf = nullptr;
+    ggml_backend_buffer_t ctx_buf = nullptr;   // legacy whole-context buffer (unused with gallocr)
+    ggml_gallocr_t alloc = nullptr;            // reusing graph allocator (peak = working set)
     ggml_cgraph* graph = nullptr;
     ggml_tensor* x = nullptr;
     ggml_tensor* tfeat = nullptr;
@@ -41,6 +44,7 @@ struct TrainDitGraph {
 };
 
 inline void free_train_dit_graph(TrainDitGraph& g) {
+    if (g.alloc) ggml_gallocr_free(g.alloc);
     if (g.ctx_buf) ggml_backend_buffer_free(g.ctx_buf);
     if (g.ctx) ggml_free(g.ctx);
     g = TrainDitGraph{};
@@ -151,6 +155,28 @@ inline bool build_train_dit_forward_graph(GgufModel& dit, const DitConfig& dc, c
     ggml_build_forward_expand(out.graph, out.loss);
     ggml_build_backward_expand(out.ctx, out.graph, nullptr);
     for (const std::string& name : overridden) dit.overrides.erase(name);
+
+    // Mark the trainable-parameter gradients as graph outputs so the reusing allocator keeps them
+    // resident through compute — we read them back on the host each step for gradient accumulation.
+    // (Without this, gallocr could reuse a grad buffer for a later intermediate.)
+    for (const TrainDitParamTensors& tp : out.params) {
+        for (ggml_tensor* p : {tp.lora_A, tp.lora_B, tp.M_xs, tp.magnitude, tp.magnitude_r, tp.magnitude_c}) {
+            if (!p) continue;
+            ggml_tensor* g = ggml_graph_get_grad(out.graph, p);
+            if (!g) g = ggml_graph_get_grad_acc(out.graph, p);
+            if (g) ggml_set_output(g);
+        }
+    }
+
+    // Allocate the forward+backward graph with a reusing allocator (ggml_gallocr): peak memory is
+    // the max concurrent working set, not the sum of every intermediate + gradient. The prior
+    // ggml_backend_alloc_ctx_tensors path made every tensor persistent (~100 GB for medium DiT),
+    // which only "worked" on CPU via pagefile over-commit and hard-failed on GPU VRAM.
+    out.alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(dit.backend));
+    if (!out.alloc || !ggml_gallocr_alloc_graph(out.alloc, out.graph)) {
+        err = "failed to allocate DiT training graph (gallocr)";
+        return false;
+    }
     return true;
 }
 

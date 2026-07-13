@@ -177,6 +177,14 @@ int main(int argc, char** argv) {
         sa3::DitConfig dc = sa3::DitConfig::from(dit);
         sa3::SameConfig sc = sa3::SameConfig::from(ae);
         std::vector<sa3::TrainLoraTarget> targets = sa3::enumerate_train_lora_targets(dit);
+        if (!cfg.inpainting) {
+            // The dit.*.local.* weights are only exercised by the inpainting local-cond path. Without
+            // it they'd be dead LoRA targets (never in the forward, so no gradient and no buffer from
+            // the graph allocator -> upload would fail). Drop them when inpainting is off.
+            targets.erase(std::remove_if(targets.begin(), targets.end(),
+                [](const sa3::TrainLoraTarget& t) { return t.stem.find(".local.") != std::string::npos; }),
+                targets.end());
+        }
         if (targets.empty()) throw std::runtime_error("no DiT LoRA targets found");
 
         sa3::GgufModel svd_bases;
@@ -289,8 +297,7 @@ int main(int argc, char** argv) {
                                                             conditioning.cond_dim, conditioning.ctx_len, graph, err,
                                                             cfg.inpainting))
                         throw std::runtime_error(err);
-                    graph.ctx_buf = ggml_backend_alloc_ctx_tensors(graph.ctx, dit.backend);
-                    if (!graph.ctx_buf) throw std::runtime_error("failed to allocate DiT training graph tensors");
+                    // build_train_dit_forward_graph now allocates the graph internally (gallocr).
                     graph_frames = latents.frames;
                     graph_cond_dim = conditioning.cond_dim;
                     graph_ctx_len = conditioning.ctx_len;
