@@ -3,6 +3,7 @@
 
 #include "sa3_pipeline.h"
 #include "train_conditioning.h"
+#include "train_inpaint.h"
 #include "train_diffusion.h"
 #include "train_dit.h"
 #include "train_lora.h"
@@ -200,9 +201,14 @@ inline bool train_apply_accumulated_adamw(TrainLoraState& state, TrainLoraGradAc
 inline bool run_train_dit_accumulate(ggml_backend_t backend, TrainDitGraph& graph, const TrainLoraState& lora,
                                      TrainLoraGradAccum& accum,
                                      const TrainDiffusionSample& sample, const TrainConditioning& cond,
-                                     const DitConfig& dc, float& loss_out, std::string& err) {
+                                     const DitConfig& dc, float& loss_out, std::string& err,
+                                     const TrainInpaint* inpaint = nullptr) {
     if (sample.x_t.empty() || sample.velocity_target.empty() || cond.cross.empty() || cond.global.empty()) {
         err = "training step inputs are empty";
+        return false;
+    }
+    if ((graph.local != nullptr) != (inpaint != nullptr)) {
+        err = "inpaint graph/sample mismatch (local-cond present in one but not the other)";
         return false;
     }
     upload_train_lora_state(lora, graph);
@@ -218,6 +224,10 @@ inline bool run_train_dit_accumulate(ggml_backend_t backend, TrainDitGraph& grap
     ggml_backend_tensor_set(graph.global, cond.global.data(), 0, cond.global.size() * sizeof(float));
     ggml_backend_tensor_set(graph.pos, pos.data(), 0, pos.size() * sizeof(int32_t));
     ggml_backend_tensor_set(graph.ones, &one, 0, sizeof(float));
+    if (inpaint) {
+        ggml_backend_tensor_set(graph.local, inpaint->local.data(), 0, inpaint->local.size() * sizeof(float));
+        ggml_backend_tensor_set(graph.loss_weight, inpaint->loss_weight.data(), 0, inpaint->loss_weight.size() * sizeof(float));
+    }
     ggml_graph_reset(graph.graph);
     ggml_backend_graph_compute(backend, graph.graph);
     ggml_backend_tensor_get(graph.loss, &loss_out, 0, sizeof(float));

@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace sa3 {
 
@@ -77,6 +78,14 @@ struct TrainConfig {
     // the global seconds_total embedding is kept, matching dit.py's cfg_dropout (null_embed =
     // zeros_like(cross_attn_cond)) and the inference unconditional pass. Reference default 0.1.
     float cfg_dropout_prob = 0.1f;
+    // Inpainting-mask objective (Stage 12). When on, each step masks part of the latent (mask type
+    // by inpaint_mask_probs), feeds [mask | latent*mask] as the DiT local-add conditioning, and
+    // computes loss on the generated region + mask_loss_weight*context region — matching
+    // training/diffusion.py + models/inpainting.py. Needs a DiT with local-cond weights (medium
+    // has them). ratatat-2: probs [0.2,0.6,0.2] (RANDOM_SEGMENTS/FULL/CAUSAL), mask_loss_weight 1.0.
+    bool inpainting = false;
+    std::string inpaint_mask_probs = "0.2,0.6,0.2";
+    float mask_loss_weight = 1.0f;
     // Learning-rate scheduler (Stage 11). "constant" keeps learning_rate fixed (legacy). "inverse_lr"
     // applies the reference InverseLR schedule per optimizer step (see train_optimizer.h inverse_lr).
     // The lr_* params default to the ratatat-2 reference config, so "--lr-scheduler inverse_lr" alone
@@ -98,6 +107,30 @@ inline bool train_normalize_dist_shift(std::string& v) {
     else if (s == "flux")   v = "Flux";
     else if (s == "logsnr") v = "LogSNR";
     else return false;
+    return true;
+}
+
+// Parse a comma-separated list of probabilities (e.g. "0.2,0.6,0.2") into doubles.
+inline bool train_parse_probs(const std::string& text, std::vector<double>& out, std::string& err) {
+    out.clear();
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t c = text.find(',', pos);
+        std::string tok = text.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
+        // trim
+        size_t b = 0, e = tok.size();
+        while (b < e && (unsigned char)tok[b] <= ' ') ++b;
+        while (e > b && (unsigned char)tok[e - 1] <= ' ') --e;
+        tok = tok.substr(b, e - b);
+        if (!tok.empty()) {
+            char* end = nullptr; errno = 0;
+            double v = std::strtod(tok.c_str(), &end);
+            if (errno || !end || *end != '\0') { err = "invalid probability: " + tok; return false; }
+            out.push_back(v);
+        }
+        if (c == std::string::npos) break;
+        pos = c + 1;
+    }
     return true;
 }
 
@@ -207,6 +240,11 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
         if (!train_parse_bool(value, c.dist_shift_effective_length)) { err = "invalid boolean for --" + key + ": " + value; return false; }
     }
     else if (key == "cfg-dropout-prob" || key == "cfg_dropout_prob" || key == "cfg-dropout") return set_f(c.cfg_dropout_prob);
+    else if (key == "inpainting" || key == "inpaint") {
+        if (!train_parse_bool(value, c.inpainting)) { err = "invalid boolean for --" + key + ": " + value; return false; }
+    }
+    else if (key == "inpaint-mask-probs" || key == "inpaint_mask_probs" || key == "mask-type-probabilities") c.inpaint_mask_probs = value;
+    else if (key == "mask-loss-weight" || key == "mask_loss_weight") return set_f(c.mask_loss_weight);
     else if (key == "lr-scheduler" || key == "lr_scheduler" || key == "scheduler") c.lr_scheduler = value;
     else if (key == "lr-inv-gamma" || key == "lr_inv_gamma" || key == "inv-gamma" || key == "inv_gamma") return set_f(c.lr_inv_gamma);
     else if (key == "lr-power" || key == "lr_power") return set_f(c.lr_power);
@@ -333,6 +371,15 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     if (c.max_steps < 0 || c.max_epochs < 0) { err = "max_steps/max_epochs must be non-negative"; return false; }
     if (c.grad_clip < 0.0f) { err = "grad_clip must be non-negative (0 = off)"; return false; }
     if (c.cfg_dropout_prob < 0.0f || c.cfg_dropout_prob > 1.0f) { err = "cfg_dropout_prob must be in [0,1]"; return false; }
+    if (c.inpainting) {
+        std::vector<double> probs;
+        if (!train_parse_probs(c.inpaint_mask_probs, probs, err)) return false;
+        if (probs.size() != 3 && probs.size() != 4) { err = "inpaint_mask_probs must have 3 or 4 elements"; return false; }
+        double sum = 0.0;
+        for (double p : probs) { if (p < 0.0) { err = "inpaint_mask_probs must be non-negative"; return false; } sum += p; }
+        if (sum < 0.999 || sum > 1.001) { err = "inpaint_mask_probs must sum to 1.0"; return false; }
+        if (c.mask_loss_weight < 0.0f) { err = "mask_loss_weight must be non-negative"; return false; }
+    }
     if (c.lr_scheduler != "constant" && c.lr_scheduler != "inverse_lr" && c.lr_scheduler != "inverse-lr") {
         err = "unsupported lr_scheduler (expected constant|inverse_lr): " + c.lr_scheduler;
         return false;
@@ -356,7 +403,8 @@ inline std::string train_config_usage(const char* argv0) {
        << "schedule: --timestep-sampler uniform|trunc_logit_normal --dist-shift none|full|flux|logsnr\n"
        << "          --dist-shift-effective-length BOOL (full-file effective length vs crop frames)\n"
        << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n"
-       << "          --prompt-config dataset.json (tag/path prompt composition per sample)\n";
+       << "          --prompt-config dataset.json (tag/path prompt composition per sample)\n"
+       << "inpainting: --inpainting BOOL --inpaint-mask-probs \"0.2,0.6,0.2\" --mask-loss-weight F\n";
     return ss.str();
 }
 

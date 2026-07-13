@@ -33,6 +33,8 @@ struct TrainDitGraph {
     ggml_tensor* pos = nullptr;
     ggml_tensor* ones = nullptr;
     ggml_tensor* target = nullptr;
+    ggml_tensor* local = nullptr;        // [local_dim, frames] inpaint local-add cond (Stage 12), or null
+    ggml_tensor* loss_weight = nullptr;  // [io, frames] per-position loss weight (Stage 12), or null
     ggml_tensor* velocity = nullptr;
     ggml_tensor* loss = nullptr;
     std::vector<TrainDitParamTensors> params;
@@ -46,9 +48,13 @@ inline void free_train_dit_graph(TrainDitGraph& g) {
 
 inline bool build_train_dit_forward_graph(GgufModel& dit, const DitConfig& dc, const TrainLoraState& lora,
                                           int frames, int cond_dim, int ctx_len,
-                                          TrainDitGraph& out, std::string& err) {
+                                          TrainDitGraph& out, std::string& err, bool inpaint = false) {
     if (frames <= 0 || cond_dim <= 0 || ctx_len <= 0) {
         err = "invalid DiT training graph dimensions";
+        return false;
+    }
+    if (inpaint && dc.local_dim <= 0) {
+        err = "inpainting requested but DiT has no local-cond weights (dit.local_dim <= 0)";
         return false;
     }
     out = TrainDitGraph{};
@@ -66,6 +72,12 @@ inline bool build_train_dit_forward_graph(GgufModel& dit, const DitConfig& dc, c
     out.ones = ggml_new_tensor_1d(out.ctx, GGML_TYPE_F32, 1);
     out.target = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, dc.io, frames);
     for (ggml_tensor* t : {out.x, out.tfeat, out.cross, out.global, out.pos, out.ones, out.target}) ggml_set_input(t);
+    if (inpaint) {
+        out.local = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, dc.local_dim, frames);
+        out.loss_weight = ggml_new_tensor_2d(out.ctx, GGML_TYPE_F32, dc.io, frames);
+        ggml_set_input(out.local);
+        ggml_set_input(out.loss_weight);
+    }
 
     const bool xs = lora.adapter_type.size() >= 3 &&
                     lora.adapter_type.compare(lora.adapter_type.size() - 3, 3, "-xs") == 0;
@@ -122,11 +134,17 @@ inline bool build_train_dit_forward_graph(GgufModel& dit, const DitConfig& dc, c
     }
 
     out.velocity = ggml_cont(out.ctx, dit_forward(out.ctx, dit, out.x, out.tfeat, out.cross,
-                                                  out.global, out.pos, out.ones, dc, nullptr));
+                                                  out.global, out.pos, out.ones, dc, out.local));
     ggml_set_output(out.velocity);
-    out.loss = ggml_scale(out.ctx,
-                          ggml_sum(out.ctx, ggml_sqr(out.ctx, ggml_sub(out.ctx, out.velocity, out.target))),
-                          1.0f / (float)(dc.io * frames));
+    ggml_tensor* sq = ggml_sqr(out.ctx, ggml_sub(out.ctx, out.velocity, out.target));
+    if (inpaint) {
+        // Stage 12: sum(mse * loss_weight). loss_weight folds in the reference's
+        // mean_gen(mse) + mask_loss_weight*mean_ctx(mse) (per-frame 1/(io*N_gen) or w/(io*N_ctx)),
+        // so this equals the uniform mean when no frame is masked (FULL keep can't happen).
+        out.loss = ggml_sum(out.ctx, ggml_mul(out.ctx, sq, out.loss_weight));
+    } else {
+        out.loss = ggml_scale(out.ctx, ggml_sum(out.ctx, sq), 1.0f / (float)(dc.io * frames));
+    }
     ggml_set_loss(out.loss);
     ggml_set_output(out.loss);
     out.graph = ggml_new_graph_custom(out.ctx, 65536, true);

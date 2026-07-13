@@ -144,6 +144,11 @@ int main(int argc, char** argv) {
             snap << "dist_shift=" << cfg.dist_shift << "\n";
             snap << "dist_shift_effective_length=" << (cfg.dist_shift_effective_length ? "true" : "false") << "\n";
             snap << "cfg_dropout_prob=" << cfg.cfg_dropout_prob << "\n";
+            snap << "inpainting=" << (cfg.inpainting ? "true" : "false") << "\n";
+            if (cfg.inpainting) {
+                snap << "inpaint_mask_probs=" << cfg.inpaint_mask_probs << "\n";
+                snap << "mask_loss_weight=" << cfg.mask_loss_weight << "\n";
+            }
             snap << "lr_scheduler=" << cfg.lr_scheduler << "\n";
             if (cfg.lr_scheduler != "constant") {
                 snap << "lr_inv_gamma=" << cfg.lr_inv_gamma << "\n";
@@ -226,6 +231,10 @@ int main(int argc, char** argv) {
         std::mt19937_64 cfg_rng(cfg.seed ^ 0xa0761d6478bd642fULL);   // Stage 9: cfg-dropout stream
         std::uniform_real_distribution<float> cfg_drop_dist(0.0f, 1.0f);
         std::mt19937_64 prompt_rng(cfg.seed ^ 0x2545f4914f6cdd1dULL); // Stage 13: prompt-composition stream
+        std::mt19937_64 inpaint_rng(cfg.seed ^ 0x14057b7ef767814fULL); // Stage 12: inpaint-mask stream
+        std::vector<double> inpaint_probs;
+        if (cfg.inpainting && !sa3::train_parse_probs(cfg.inpaint_mask_probs, inpaint_probs, err))
+            throw std::runtime_error(err);
         std::vector<size_t> order(train_pairs.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
 
@@ -277,7 +286,8 @@ int main(int argc, char** argv) {
                     graph_cond_dim != conditioning.cond_dim || graph_ctx_len != conditioning.ctx_len) {
                     sa3::free_train_dit_graph(graph);
                     if (!sa3::build_train_dit_forward_graph(dit, dc, lora, latents.frames,
-                                                            conditioning.cond_dim, conditioning.ctx_len, graph, err))
+                                                            conditioning.cond_dim, conditioning.ctx_len, graph, err,
+                                                            cfg.inpainting))
                         throw std::runtime_error(err);
                     graph.ctx_buf = ggml_backend_alloc_ctx_tensors(graph.ctx, dit.backend);
                     if (!graph.ctx_buf) throw std::runtime_error("failed to allocate DiT training graph tensors");
@@ -296,8 +306,23 @@ int main(int argc, char** argv) {
                     t = sa3::dist_shift_warp(cfg.dist_shift, t, eff_len, ds_p1, ds_p2, ds_p3, ds_p4);
                 }
                 if (!sampler.sample_at(latents.z, t, sample, err)) throw std::runtime_error(err);
+                // Stage 12: inpainting objective. Generate a per-sample mask (type by inpaint_probs),
+                // build [mask | latent*mask] local-add cond + the inpaint-aware loss weight. All crop
+                // frames are real (no padding), so real_len == latents.frames.
+                sa3::TrainInpaint inpaint;
+                bool have_inpaint = false;
+                if (cfg.inpainting) {
+                    sa3::InpaintMaskType mtype;
+                    std::vector<float> mask = sa3::generate_inpaint_mask(latents.frames, latents.frames,
+                                                                         inpaint_probs, inpaint_rng, mtype);
+                    inpaint = sa3::build_train_inpaint(latents.z, mask, dc.io, latents.frames, dc.local_dim,
+                                                       cfg.mask_loss_weight);
+                    inpaint.type = mtype;
+                    have_inpaint = true;
+                }
                 float loss = 0.0f;
-                if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err))
+                if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err,
+                                                   have_inpaint ? &inpaint : nullptr))
                     throw std::runtime_error(err);
                 bool updated = false;
                 float applied_lr = opt.learning_rate;
@@ -310,13 +335,21 @@ int main(int argc, char** argv) {
                 // Truncated composed prompt, so the caption/path mix is visible when eyeballing runs.
                 std::string prompt_preview = caption.substr(0, 48);
                 for (char& ch : prompt_preview) if (ch == '\n' || ch == '\r') ch = ' ';
-                std::printf("epoch %d step %d id=%s t=%.4f%s lr=%.3e loss=%.6f prompt=\"%s%s\"\n",
+                static const char* kMaskNames[] = {"segments", "full", "causal", "spans"};
+                std::string inpaint_tag;
+                if (have_inpaint)
+                    inpaint_tag = std::string(" mask=") + kMaskNames[(int)inpaint.type] +
+                                  "(" + std::to_string(inpaint.n_gen) + "gen/" + std::to_string(inpaint.n_ctx) + "ctx)";
+                std::printf("epoch %d step %d id=%s t=%.4f%s%s lr=%.3e loss=%.6f prompt=\"%s%s\"\n",
                             epoch, loop.step, pair.id.c_str(), sample.t, cfg_dropped ? " cfg_drop" : "",
-                            applied_lr, loss, prompt_preview.c_str(), caption.size() > 48 ? "..." : "");
+                            inpaint_tag.c_str(), applied_lr, loss, prompt_preview.c_str(), caption.size() > 48 ? "..." : "");
                 metrics << "{\"epoch\":" << epoch << ",\"update\":" << loop.step
                         << ",\"split\":\"train\",\"id\":\"" << pair.id
-                        << "\",\"t\":" << sample.t << ",\"cfg_drop\":" << (cfg_dropped ? 1 : 0)
-                        << ",\"lr\":" << applied_lr << ",\"loss\":" << loss << "}\n";
+                        << "\",\"t\":" << sample.t << ",\"cfg_drop\":" << (cfg_dropped ? 1 : 0);
+                if (have_inpaint)
+                    metrics << ",\"mask\":\"" << kMaskNames[(int)inpaint.type] << "\""
+                            << ",\"n_gen\":" << inpaint.n_gen << ",\"n_ctx\":" << inpaint.n_ctx;
+                metrics << ",\"lr\":" << applied_lr << ",\"loss\":" << loss << "}\n";
                 metrics.flush();
                 if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
                 if (cfg.max_steps > 0 && loop.step >= cfg.max_steps) stop = true;
