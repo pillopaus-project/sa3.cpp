@@ -9,6 +9,9 @@
 #include "train_lora.h"
 #include "train_optimizer.h"
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -229,6 +232,18 @@ inline bool run_train_dit_accumulate(ggml_backend_t backend, TrainDitGraph& grap
         ggml_backend_tensor_set(graph.loss_weight, inpaint->loss_weight.data(), 0, inpaint->loss_weight.size() * sizeof(float));
     }
     ggml_graph_reset(graph.graph);
+    if (getenv("SA3_TRAIN_PROFILE")) {
+        auto t0 = std::chrono::steady_clock::now();
+        ggml_backend_graph_compute(backend, graph.graph);
+        ggml_backend_tensor_get(graph.loss, &loss_out, 0, sizeof(float));  // forces compute sync
+        auto t1 = std::chrono::steady_clock::now();
+        bool ok = train_accumulate_adamw_gradients(graph, lora, accum, err);
+        auto t2 = std::chrono::steady_clock::now();
+        std::fprintf(stderr, "[prof]   compute=%.0f gradread=%.0f ms (%zu params)\n",
+                     std::chrono::duration<double, std::milli>(t1 - t0).count(),
+                     std::chrono::duration<double, std::milli>(t2 - t1).count(), lora.params.size());
+        return ok;
+    }
     ggml_backend_graph_compute(backend, graph.graph);
     ggml_backend_tensor_get(graph.loss, &loss_out, 0, sizeof(float));
     return train_accumulate_adamw_gradients(graph, lora, accum, err);

@@ -16,6 +16,7 @@
 #include "train_same.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -259,6 +260,11 @@ int main(int argc, char** argv) {
             if (multi_epoch) std::shuffle(order.begin(), order.end(), shuffle_rng);
             for (size_t oi = 0; oi < order.size() && !stop; ++oi) {
                 const auto& pair = train_pairs[order[oi]];
+                // Per-phase profiling (SA3_TRAIN_PROFILE=1): decode/AE-encode/T5-cond/DiT/AdamW ms.
+                const bool prof = getenv("SA3_TRAIN_PROFILE") != nullptr;
+                auto tnow = [] { return std::chrono::steady_clock::now(); };
+                auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+                auto p0 = tnow();
                 sa3::TrainAudio decoded, windowed;
                 if (!sa3::decode_mp3_planar_ffmpeg(pair.audio_path, 44100, sc.out_channels / sc.patch_size, decoded, err))
                     throw std::runtime_error(err);
@@ -270,9 +276,11 @@ int main(int argc, char** argv) {
                 }
                 if (!sa3::prepare_train_audio_window(decoded, target_samples, crop_start, windowed, err))
                     throw std::runtime_error(err);
+                auto p1 = tnow();
                 sa3::TrainLatents latents;
                 if (!sa3::encode_train_audio_to_latents(ae, sc, windowed, latents, err))
                     throw std::runtime_error(err);
+                auto p2 = tnow();
                 const std::string caption = build_train_prompt(cfg, prompt_cfg, pair, prompt_rng);
                 sa3::TrainConditioning conditioning;
                 // Reference parity: seconds_total is the FULL source-file duration (ceil'd at
@@ -290,6 +298,7 @@ int main(int argc, char** argv) {
                     std::fill(conditioning.cross.begin(), conditioning.cross.end(), 0.0f);
                     cfg_dropped = true;
                 }
+                auto p3 = tnow();
                 if (!graph.ctx || graph_frames != latents.frames ||
                     graph_cond_dim != conditioning.cond_dim || graph_ctx_len != conditioning.ctx_len) {
                     sa3::free_train_dit_graph(graph);
@@ -327,10 +336,12 @@ int main(int argc, char** argv) {
                     inpaint.type = mtype;
                     have_inpaint = true;
                 }
+                auto p4 = tnow();   // p3->p4 = graph build (first step) + sampling + inpaint gen (host)
                 float loss = 0.0f;
                 if (!sa3::run_train_dit_accumulate(dit.backend, graph, lora, accum, sample, conditioning, dc, loss, err,
                                                    have_inpaint ? &inpaint : nullptr))
                     throw std::runtime_error(err);
+                auto p5 = tnow();   // p4->p5 = DiT fwd+bwd+grad-read (synced by loss/grad tensor_get)
                 bool updated = false;
                 float applied_lr = opt.learning_rate;
                 if (accum.count >= cfg.batch_size) {
@@ -339,6 +350,10 @@ int main(int argc, char** argv) {
                     if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, step_opt, err)) throw std::runtime_error(err);
                     updated = true;
                 }
+                auto p6 = tnow();
+                if (prof)
+                    std::fprintf(stderr, "[prof] step %d: decode=%.0f ae_encode=%.0f t5_cond=%.0f prep=%.0f dit=%.0f adamw=%.0f total=%.0f ms\n",
+                                 loop.step, ms(p0,p1), ms(p1,p2), ms(p2,p3), ms(p3,p4), ms(p4,p5), ms(p5,p6), ms(p0,p6));
                 // Truncated composed prompt, so the caption/path mix is visible when eyeballing runs.
                 std::string prompt_preview = caption.substr(0, 48);
                 for (char& ch : prompt_preview) if (ch == '\n' || ch == '\r') ch = ' ';
