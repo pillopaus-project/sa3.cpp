@@ -3,6 +3,7 @@
 // checks that dl==nullptr leaves dit_lin byte-identical to a plain mul_mat (inference unchanged),
 // and that the trainable adapter tensors receive finite-difference-correct gradients.
 #include "dit.h"
+#include "test_backend.h"
 #include "train_lora.h"
 
 #include <cmath>
@@ -68,7 +69,7 @@ int main() {
         ggml_cgraph* g = ggml_new_graph(ctx);
         ggml_build_forward_expand(g, ref_y);
         ggml_build_forward_expand(g, fun_y);
-        ggml_graph_compute_with_ctx(ctx, g, 1);
+        sa3_test_compute(g);
 
         double maxrel = 0.0;
         for (int64_t k = 0; k < OUT * SEQ; ++k) {
@@ -103,7 +104,7 @@ int main() {
         ggml_cgraph* g = ggml_new_graph(ctx);
         ggml_build_forward_expand(g, ref_y);
         ggml_build_forward_expand(g, fun_y);
-        ggml_graph_compute_with_ctx(ctx, g, 1);
+        sa3_test_compute(g);
         double maxrel = 0.0;
         for (int64_t k = 0; k < OUT * SEQ; ++k) {
             const double r = ((float*)ref_y->data)[k], f = ((float*)fun_y->data)[k];
@@ -119,7 +120,7 @@ int main() {
         ggml_cgraph* g = ggml_new_graph(ctx);
         ggml_build_forward_expand(g, plain);
         ggml_build_forward_expand(g, viadl);
-        ggml_graph_compute_with_ctx(ctx, g, 1);
+        sa3_test_compute(g);
         double maxabs = 0.0;
         for (int64_t k = 0; k < OUT * SEQ; ++k)
             maxabs = std::max(maxabs, (double)std::fabs(((float*)plain->data)[k] - ((float*)viadl->data)[k]));
@@ -180,7 +181,7 @@ int main() {
         ggml_build_forward_expand(gb, loss);
         ggml_build_backward_expand(c2, gb, nullptr);
         ggml_graph_reset(gb);
-        ggml_graph_compute_with_ctx(c2, gb, 1);
+        sa3_test_compute(gb);
 
         auto check_grad = [&](ggml_tensor* param, const char* label) {
             ggml_tensor* gT = ggml_graph_get_grad(gb, param);
@@ -191,10 +192,10 @@ int main() {
                 const float ana = ((float*)gT->data)[k];
                 const float save = ((float*)param->data)[k];
                 ((float*)param->data)[k] = save + 1e-3f;
-                ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+                ggml_graph_reset(gb); sa3_test_compute(gb);
                 const double lp = ((float*)loss->data)[0];
                 ((float*)param->data)[k] = save - 1e-3f;
-                ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+                ggml_graph_reset(gb); sa3_test_compute(gb);
                 const double lm = ((float*)loss->data)[0];
                 ((float*)param->data)[k] = save;
                 const double num = (lp - lm) / 2e-3;
@@ -222,7 +223,7 @@ int main() {
         {
             ggml_tensor* gX = ggml_graph_get_grad(gb, x2);
             fails += expect(gX != nullptr, "x gradient exists");
-            ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+            ggml_graph_reset(gb); sa3_test_compute(gb);
             if (!f16_base) {
                 // snapshot the analytic grad first: the FD recomputes below overwrite gX with
                 // gradients evaluated at perturbed x
@@ -233,17 +234,17 @@ int main() {
                     const float save = ((float*)x2->data)[k];
                     const float h = 1e-2f;
                     ((float*)x2->data)[k] = save + h;
-                    ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+                    ggml_graph_reset(gb); sa3_test_compute(gb);
                     const double lp = ((float*)loss->data)[0];
                     ((float*)x2->data)[k] = save - h;
-                    ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+                    ggml_graph_reset(gb); sa3_test_compute(gb);
                     const double lm = ((float*)loss->data)[0];
                     ((float*)x2->data)[k] = save;
                     const double num = (lp - lm) / (2.0 * h);
                     gmax = std::max(gmax, std::fabs(num - ana) / (std::fabs(num) + 1e-1));
                 }
                 fails += expect(gmax < 2e-2, "x gradient matches finite differences");
-                ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+                ggml_graph_reset(gb); sa3_test_compute(gb);
                 gx_f32.assign((float*)gX->data, (float*)gX->data + IN*SEQ);
             } else {
                 double gmax = 0;

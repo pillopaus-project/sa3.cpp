@@ -1,4 +1,5 @@
 #include "train_lora.h"
+#include "test_backend.h"
 
 #include <cstdio>
 
@@ -119,7 +120,7 @@ int main() {
         // lora-xs: additive, exact
         ggml_tensor* ew = sa3::train_lora_effective_weight(c2, W, gp, "lora-xs", RK, alpha);
         ggml_cgraph* g = ggml_new_graph(c2); ggml_build_forward_expand(g, ew);
-        ggml_graph_compute_with_ctx(c2, g, 1);
+        sa3_test_compute(g);
         const float* ed = (const float*)ew->data;
         double maxerr = 0;
         std::vector<float> vref((size_t)IN * OUT);
@@ -135,7 +136,7 @@ int main() {
         // dora-rows-xs: same delta, then per-output row-normalize and scale by magnitude[out]
         ggml_tensor* ew2 = sa3::train_lora_effective_weight(c2, W, gp, "dora-rows-xs", RK, alpha);
         ggml_cgraph* g2 = ggml_new_graph(c2); ggml_build_forward_expand(g2, ew2);
-        ggml_graph_compute_with_ctx(c2, g2, 1);
+        sa3_test_compute(g2);
         const float* ed2 = (const float*)ew2->data;
         double maxerr2 = 0;
         for (int o = 0; o < OUT; ++o) {
@@ -162,7 +163,7 @@ int main() {
         ggml_build_forward_expand(gb, loss);
         ggml_build_backward_expand(c2, gb, nullptr);
         ggml_graph_reset(gb);
-        ggml_graph_compute_with_ctx(c2, gb, 1);
+        sa3_test_compute(gb);
         ggml_tensor* gM = ggml_graph_get_grad(gb, Mp);
         fails += expect(gM != nullptr, "M_xs has a gradient in the training graph");
         std::vector<float> ana((size_t)RK * RK);
@@ -170,7 +171,7 @@ int main() {
         auto loss_at = [&](int a, int b, float d) -> double {
             const float save = ((float*)Mp->data)[a * RK + b];
             ((float*)Mp->data)[a * RK + b] = save + d;
-            ggml_graph_reset(gb); ggml_graph_compute_with_ctx(c2, gb, 1);
+            ggml_graph_reset(gb); sa3_test_compute(gb);
             const double L = ((float*)loss->data)[0];
             ((float*)Mp->data)[a * RK + b] = save;
             return L;
