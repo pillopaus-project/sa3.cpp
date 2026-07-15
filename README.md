@@ -6,8 +6,10 @@ it might also just allow us to embed sa3 directly inside a JUCE/iPlug2 project. 
 
 because this is my first ggml project, i wanted to be the first to actually run it in downstream apps instead of just benchmarking it. so both surfaces are already tested end-to-end:
 
-- the **http server** (`sa3-server`) as an optional backend in [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`)
+- the **http server** (`sa3-server`) as an optional backend in [sa3-ableton-extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backend/sa3.cpp) (branch `backend/sa3.cpp`) — there's an [embedded version of the extension](https://github.com/betweentwomidnights/sa3-ableton-extension/tree/backends/embedded-sa3) now too, running libsa3 in-process
 - **libsa3** (the embedded c abi) runs the model in-process inside [sa3.cpp-iplug2-demo](https://github.com/betweentwomidnights/sa3.cpp-iplug2-demo)
+
+there's also a browser web UI for the `sa3-server` http backend being built and validated on [pillopaus-project's fork](https://github.com/pillopaus-project/sa3.cpp).
 
 ## quickstart
 
@@ -63,6 +65,9 @@ what works:
   applied in weight space (not a static merge)
 - cuda backend + fp16 — medium generation ~3.5s end-to-end on an 8gb laptop 5070, and long-form
   (sliding-window decoder) scales linearly. see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+- vulkan backend + fp16 — validated on NVIDIA dGPU, Intel iGPU, and AMD Radeon 780M/RADV,
+  including long-form via `--chunked-decode`. this is the working path on AMD (not HIP).
+  see [docs/VULKAN.md](docs/VULKAN.md).
 
 what's next:
 
@@ -72,9 +77,13 @@ what's next:
 - [x] loras (lora/dora/bora + xs variants, runtime strength + multi-adapter blending)
 - [x] cuda backend + fp16
 - [x] benchmark generation times and stuff ([docs/BENCHMARKS.md](docs/BENCHMARKS.md))
-- [x] vulkan backend ([docs/VULKAN.md](docs/VULKAN.md))
+- [x] vulkan backend, including iGPU/APU selection ([docs/VULKAN.md](docs/VULKAN.md))
+- [x] vulkan/radv long-form stability — 780M/RADV lost the device around 200s on a monolithic
+  decode; `--chunked-decode` fixes it (thanks @bakamomi for confirming on 780M/RADV)
 - [x] metal backend builds + smoke-tests on Apple M4
-- [ ] hip/rocm for amd — scaffolded (`./build.sh hip`) but **untested, [ROCm tester wanted](docs/HIP.md)** 🙏
+- [ ] hip/rocm for amd — not working: selects the device but gfx1103/780M aborts in HIP
+  code-object loading (#6). on that hardware use the vulkan backend + `--chunked-decode` instead.
+  **[ROCm tester wanted](docs/HIP.md)** 🙏
 - [ ] cross-backend seed reproducibility — the same seed gives a *different-but-valid* result on cuda vs vulkan
   (tensor-core matmul accumulation, not the RNG — the noise is already deterministic). worth a "precise mode"
   toggle / philox-style approach (cf. [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp)) so a seed
