@@ -78,5 +78,11 @@ inference:
 with `tools/convert_dit.py`, quantize it with `tools/quantize_gguf.py`, or pass its GGUF explicitly with
 `--dit`. The tokenizer, T5 encoder, conditioner, and SAME autoencoder remain the normal inference files.
 
+Download the complete inference + training set with:
+
+```sh
+python tools/download_models.py --variant medium --encoding f16 --training-base
+```
+
 `sa3-generate --model <variant>` resolves this set from the naming convention above. lora adapters resolve the
 same way (`lora-<name>-*.gguf`) — see [`../loras`](../loras).

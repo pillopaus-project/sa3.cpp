@@ -13,10 +13,10 @@ CUDA is the target backend for real training runs. CPU builds are useful for par
 
 ## Models
 
-Download the normal inference GGUF set first:
+Download the normal inference GGUF set and its matching training base:
 
 ```sh
-python tools/download_models.py --variant medium
+python tools/download_models.py --variant medium --encoding f16 --training-base
 ```
 
 Training additionally needs the matching base DiT. Adapters are trained on `medium-base`,
@@ -119,7 +119,7 @@ build-cuda/bin/sa3-generate \
 
 ## Troubleshooting
 
-- Missing model files: run `python tools/download_models.py --variant medium`.
+- Missing model files: run `python tools/download_models.py --variant medium --training-base`.
 - Missing captions or audio: inspect the split `filelist.txt` and `metadata.jsonl`; training fails before model loading.
 - Split contamination: remove the duplicate item from train or held-out splits.
 - FFmpeg decode failure: confirm `ffmpeg` is installed and can decode the MP3.

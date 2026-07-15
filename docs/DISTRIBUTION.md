@@ -66,6 +66,11 @@ t5gemma-b-b-ul2-v1.0-vocab.gguf
 
 # adapters (live with the repo they target, or a loras repo)
 <name>-v1.0-F32-LoRA.gguf        # e.g. kev-v1.0-F32-LoRA.gguf
+
+# training-only base DiTs (one dedicated repo per variant)
+stable-audio-3-medium-base-dit-1.5B-v1.0-{F32,F16}.gguf
+stable-audio-3-small-music-base-dit-0.5B-v1.0-{F32,F16}.gguf
+stable-audio-3-small-sfx-base-dit-0.5B-v1.0-{F32,F16}.gguf
 ```
 
 ## metadata (`general.*`) the converters must stamp
@@ -83,6 +88,10 @@ dit/ae/t5gemma/conditioner converters):
 | `general.version`    | `v1.0` |
 | `general.license`    | `stabilityai-community` |
 
+Training-base DiTs additionally set `dit.training_base = true` and the standard
+`general.base_model.0.{name,organization,version,repo_url}` fields. `version` is the exact pinned
+upstream revision, so the source of a standalone GGUF remains recoverable without its model card.
+
 ## hf repo layout
 
 de-facto gguf norm (TheBloke / acestep.cpp): **one repo per model, all components + all
@@ -94,9 +103,11 @@ quants as files, one card with a "grab one of each" table** — not a repo per q
 | `stable-audio-3-small-music-GGUF`  | small-music DiT + SAME-S + conditioner |
 | `stable-audio-3-small-sfx-GGUF`    | small-sfx DiT + SAME-S + conditioner |
 | `t5gemma-b-b-ul2-GGUF` *(shared)*  | encoder + tokenizer |
+| `stable-audio-3-<variant>-base-GGUF` | training-only base DiT, F16 + F32 |
 
 grouped under an hf **collection** "Stable Audio 3 (GGUF)". the `models` downloader fetches one
-variant repo (DiT + SAME + conditioner) + the shared encoder repo.
+variant repo (DiT + SAME + conditioner) + the shared encoder repo. Passing `--training-base`
+also fetches the matching dedicated base-DiT repo used by `sa3-train`.
 
 ## quant matrix (initial)
 
