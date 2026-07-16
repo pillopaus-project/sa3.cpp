@@ -40,18 +40,21 @@ sa3-generate --model small-music --duration 12 --prompt "upbeat funk groove with
 sa3-generate --model medium --lora kev --lora keygen --prompt "neo-classical lofi hiphop 90bpm C# minor" --out song.wav
 ```
 
-updating an existing checkout or fork after pulling a new sa3.cpp revision:
+updating an existing checkout across the one-time ggml URL migration:
 
 ```bash
+git -c fetch.recurseSubmodules=false pull --ff-only
 git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
 sa3.cpp pins an exact revision of its public
 [`betweentwomidnights/ggml`](https://github.com/betweentwomidnights/ggml) fork. existing checkouts
-cache the old submodule URL, so `sync` matters when the fork changes; `update` also moves ggml to
-the backend patch revision tested by that sa3.cpp commit. neither command uses a moving ggml
-branch. if you have local changes inside `ggml/`, commit or stash them first.
+cache the old submodule URL. disabling recursive submodule fetching for that first pull lets Git
+receive the new parent revision before `sync` replaces the cached URL; otherwise some Git setups
+try to fetch the new pin from the old `ggml-org/ggml` remote and report `not our ref`. `update`
+then moves ggml to the backend patch revision tested by that sa3.cpp commit. none of these commands
+uses a moving ggml branch. if you have local changes inside `ggml/`, commit or stash them first.
 
 (`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still
 work and override it per-slot. `--encoding f32` and `--models-dir DIR` adjust what it resolves.

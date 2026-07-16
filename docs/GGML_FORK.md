@@ -66,10 +66,24 @@ tag and row rather than changing the trainer-v1 tag.
 
 ## Updating existing clones and downstream forks
 
-After merging or rebasing the latest `sa3.cpp` main branch, synchronize the cached submodule URL
-and check out the exact tested pin:
+For a direct clone following `main`, disable recursive submodule fetching during the one-time
+superproject update, then synchronize the cached URL and check out the exact tested pin:
 
 ```sh
+git -c fetch.recurseSubmodules=false pull --ff-only
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+The fetch override matters during the URL migration: recursive fetching otherwise consults the
+old cached `ggml-org/ggml` URL before the new `.gitmodules` file is present and can fail with
+`not our ref`.
+
+For a downstream fork, use the same ordering around its normal merge or rebase workflow:
+
+```sh
+git -c fetch.recurseSubmodules=false fetch upstream
+git merge upstream/main                 # or: git rebase upstream/main
 git submodule sync --recursive
 git submodule update --init --recursive
 ```
