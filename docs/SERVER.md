@@ -51,7 +51,7 @@ completed audio once and immediately remove that job from server memory. complet
   "prompt": "breakcore 140bpm",
   "duration": 12,
   "steps": 8,
-  "seed": 0,
+  "seed": -1,                      // default: random; use any non-negative value to reproduce a run
   "loras": [{"name": "kev", "strength": 1.0}, {"name": "keygen", "strength": 0.8}],
   "keep_models": false,          // default: frugal (free after each gen, reload next) — vst/daw-safe
 

@@ -550,7 +550,7 @@ bool parse_generate_request(yyjson_val* root, const std::string& adir,
     }
     params.frames = frames_for_target_samples(duration_target_samples);
     params.steps            = I("steps", 8);
-    seed_resolved           = sa3::pick_seed(I("seed", 0));   // seed -1 => random
+    seed_resolved           = sa3::pick_seed(I("seed", -1));  // omitted/negative => random
     params.seed             = seed_resolved;
     params.keep_models      = B("keep_models", false);        // FRUGAL default
     params.init_noise_level = (float)D("init_noise_level", 0.85);

@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     bool keep_models = false;        // --keep-models: don't free TE/DIT early (keep all resident)
     int encode_chunk_size = 0, encode_overlap = 32;     // outer SAME-L encode tiling; 0 = monolithic
     int decode_chunk_size = 0, decode_overlap = 32;     // outer SAME-L decode tiling; 0 = monolithic
-    int frames = 128, steps = 8; long long seed = 0;   // seed < 0 (e.g. -1) => random (resolved below)
+    int frames = 128, steps = 8; long long seed = -1;  // omitted/negative => random (resolved below)
     int cpu_threads = 0;
     bool frames_set = false, duration_set = false, threads_set = false;
     double duration_sec = 0.0;
