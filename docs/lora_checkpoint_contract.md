@@ -1,6 +1,8 @@
 # LoRA Checkpoint Contract Audit
 
-Source-of-truth files: `src/lora.h`, `src/lora_convert.h`, `src/train_checkpoint.h`, `tools/convert_lora.py`, `tools/lora_ckpt_export.py`, and `tools/lora_spec_test.py`.
+Source-of-truth files: `src/lora.h`, `src/lora_convert.h`, `src/train_checkpoint.h`,
+`src/train_resume.h`, `tools/convert_lora.py`, `tools/lora_ckpt_export.py`, and
+`tools/lora_spec_test.py`.
 
 ## GGUF metadata
 
@@ -14,6 +16,24 @@ A training checkpoint must be a GGUF adapter with:
 - `lora.n_targets`: count of distinct mapped DiT target modules
 
 `src/lora.h::load_lora()` requires `lora.rank` and `lora.alpha`; `lora.adapter_type` defaults to `lora` if absent, but new checkpoints should always write it.
+
+## Trainer-state sidecars
+
+Native step checkpoints are immutable pairs: the inference-ready `adapter-step-N.gguf` described
+above and a host-only `trainer-state-step-N.gguf`. The sidecar is never passed to the inference
+loader. It uses `general.architecture = "sa3-trainer-state"` and records:
+
+- `trainer.state_version`, optimizer step, epoch, next-sample cursor, and shuffled dataset order;
+- the ordered target inventory and AdamW `m`/`v` tensors for every trainable adapter component;
+- serialized shuffle, crop, CFG-dropout, prompt, inpainting, and diffusion RNG/distribution state;
+- a trajectory-compatibility fingerprint covering the model, dataset, targets, and math-affecting
+  training configuration;
+- the paired adapter filename and its file fingerprint, preventing moments from being combined with
+  a different adapter that merely has compatible tensor shapes.
+
+The adapter temporary is published first and the state sidecar last, making the sidecar the marker
+for a complete resumable pair. `adapter-final.gguf` remains an inference convenience copy; the final
+optimizer update is also emitted as a numbered resumable pair.
 
 ## Tensor names and shapes
 

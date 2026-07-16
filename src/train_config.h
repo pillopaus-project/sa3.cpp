@@ -47,6 +47,9 @@ struct TrainConfig {
     int checkpoint_every = 500;
     // Empty means train_finalize_defaults() chooses train-runs/<dataset>[-N].
     std::string output_dir;
+    // Exact continuation from an immutable adapter-step-N.gguf / trainer-state-step-N.gguf pair.
+    // Either member of the pair may be supplied. max_steps remains the total target step.
+    std::string resume_path;
     std::string optimizer = "adamw";
     std::string svd_bases_path;   // optional GGUF of frozen U/V bases for -xs adapters (exact-parity path)
     // Prompt tag-composition (Stage 13). When set, per sample the prompt is composed from the
@@ -242,6 +245,7 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "seed") return set_u(c.seed);
     else if (key == "checkpoint-every" || key == "checkpoint_every") return set_i(c.checkpoint_every);
     else if (key == "out" || key == "output-dir" || key == "output_dir") c.output_dir = value;
+    else if (key == "resume" || key == "resume_path") c.resume_path = value;
     else if (key == "optimizer") c.optimizer = value;
     else if (key == "svd-bases" || key == "svd_bases" || key == "svd-bases-path" || key == "svd_bases_path") c.svd_bases_path = value;
     else if (key == "prompt-config" || key == "prompt_config") c.prompt_config_path = value;
@@ -382,6 +386,11 @@ inline void train_finalize_defaults(TrainConfig& c) {
         if (fs::is_regular_file(prompt, ec)) c.prompt_config_path = prompt.string();
     }
 
+    if (c.output_dir.empty() && !c.resume_path.empty()) {
+        const fs::path parent = fs::path(c.resume_path).lexically_normal().parent_path();
+        c.output_dir = parent.empty() ? "." : parent.string();
+    }
+
     if (c.output_dir.empty() && !c.dataset_dir.empty()) {
         fs::path dataset = fs::path(c.dataset_dir).lexically_normal();
         std::string name = dataset.filename().string();
@@ -476,6 +485,7 @@ inline std::string train_config_usage(const char* argv0) {
        << "example: " << argv0 << " --dataset C:\\datasets\\my-audio --steps 1500\n"
        << "core options: --model medium|small-music|small-sfx --models-dir DIR --dataset DIR --out DIR\n"
        << "              --steps N (alias: --max-steps; default 10000)\n"
+       << "              --resume adapter-step-N.gguf|trainer-state-step-N.gguf (N -> --steps total)\n"
        << "adapter: --adapter-type lora|dora-rows|dora-cols|bora|*-xs --rank N --alpha F\n"
        << "optimization: --learning-rate F --batch-size N --threads N --frames N --duration SEC --seed N\n"
        << "          --lr-scheduler constant|inverse_lr [--lr-inv-gamma F --lr-power F --lr-warmup F --lr-final F]\n"

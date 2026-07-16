@@ -170,8 +170,9 @@ add_executable(sa3-train-loop-compile-test tests/train_loop_compile_test.cpp ven
 target_link_libraries(sa3-train-loop-compile-test PRIVATE sa3)
 target_include_directories(sa3-train-loop-compile-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
 
-add_executable(sa3-train-checkpoint-test tests/train_checkpoint_test.cpp)
+add_executable(sa3-train-checkpoint-test tests/train_checkpoint_test.cpp vendor/yyjson/yyjson.c)
 target_link_libraries(sa3-train-checkpoint-test PRIVATE sa3)
+target_include_directories(sa3-train-checkpoint-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
 
 add_executable(sa3-train-prompt-test tests/train_prompt_test.cpp vendor/yyjson/yyjson.c)
 target_link_libraries(sa3-train-prompt-test PRIVATE sa3)

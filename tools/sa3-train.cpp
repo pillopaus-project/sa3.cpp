@@ -14,6 +14,7 @@
 #include "train_loop.h"
 #include "train_model_paths.h"
 #include "train_prompt.h"
+#include "train_resume.h"
 #include "train_same.h"
 
 #include <algorithm>
@@ -93,6 +94,29 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
             return 2;
         }
+        if (!cfg.resume_path.empty()) {
+            std::string adapter_probe, state_probe;
+            if (!sa3::train_resolve_resume_pair(cfg.resume_path, adapter_probe, state_probe, err)) {
+                std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
+                return 2;
+            }
+            const std::filesystem::path output_abs =
+                std::filesystem::absolute(cfg.output_dir).lexically_normal();
+            const std::filesystem::path state_dir_abs =
+                std::filesystem::absolute(std::filesystem::path(state_probe).parent_path()).lexically_normal();
+            if (output_abs == state_dir_abs) {
+                const int requested =
+                    sa3::train_checkpoint_step_from_name(std::filesystem::path(state_probe).filename().string());
+                const int latest = sa3::train_latest_checkpoint_step(cfg.output_dir);
+                if (requested >= 0 && latest > requested) {
+                    std::fprintf(stderr,
+                        "sa3-train: step %d is not the latest checkpoint in %s (step %d exists); "
+                        "resume the latest checkpoint or choose --out\n",
+                        requested, cfg.output_dir.c_str(), latest);
+                    return 2;
+                }
+            }
+        }
         sa3::ModelPaths paths;
         if (!sa3::resolve_train_model_paths(cfg, paths, err)) {
             std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
@@ -126,7 +150,9 @@ int main(int argc, char** argv) {
         std::ofstream metrics(std::filesystem::path(cfg.output_dir) / "metrics.jsonl", std::ios::app);
         if (!metrics) throw std::runtime_error("cannot write metrics in " + cfg.output_dir);
         {
-            std::ofstream snap(std::filesystem::path(cfg.output_dir) / "config.snapshot.txt");
+            const char* snapshot_name = cfg.resume_path.empty()
+                ? "config.snapshot.txt" : "config.resume.snapshot.txt";
+            std::ofstream snap(std::filesystem::path(cfg.output_dir) / snapshot_name);
             snap << "model_variant=" << cfg.model_variant << "\n";
             snap << "encoding=" << cfg.encoding << "\n";
             snap << "models_dir=" << cfg.models_dir << "\n";
@@ -158,6 +184,7 @@ int main(int argc, char** argv) {
             snap << "seed=" << cfg.seed << "\n";
             snap << "checkpoint_every=" << cfg.checkpoint_every << "\n";
             snap << "output_dir=" << cfg.output_dir << "\n";
+            snap << "resume=" << (cfg.resume_path.empty() ? "(none)" : cfg.resume_path) << "\n";
             snap << "prompt_config=" << (cfg.prompt_config_path.empty() ? "(none)" : cfg.prompt_config_path) << "\n";
             snap << "max_steps=" << cfg.max_steps << "\n";
             snap << "max_epochs=" << cfg.max_epochs << "\n";
@@ -182,7 +209,9 @@ int main(int argc, char** argv) {
             }
         }
         {
-            std::ofstream cmd(std::filesystem::path(cfg.output_dir) / "command.txt");
+            std::ofstream cmd(std::filesystem::path(cfg.output_dir) / "command.txt",
+                              cfg.resume_path.empty() ? std::ios::out : (std::ios::out | std::ios::app));
+            if (!cfg.resume_path.empty()) cmd << "resume: ";
             for (int i = 0; i < argc; ++i) {
                 if (i) cmd << ' ';
                 cmd << argv[i];
@@ -226,6 +255,44 @@ int main(int argc, char** argv) {
             throw std::runtime_error(err);
         }
         if (have_bases) svd_bases.free();
+
+        const std::string resume_compatibility =
+            sa3::train_resume_compatibility(cfg, paths.dit, targets, train_pairs);
+        const bool resuming = !cfg.resume_path.empty();
+        std::string resume_adapter_path, resume_state_path;
+        sa3::TrainLoopState loop;
+        sa3::TrainResumeProgress loaded_progress;
+        int resume_start_step = 0;
+        if (resuming) {
+            if (!sa3::train_resolve_resume_pair(cfg.resume_path, resume_adapter_path, resume_state_path, err))
+                throw std::runtime_error(err);
+            sa3::TrainLoraState loaded_lora;
+            if (!sa3::load_train_lora_gguf(resume_adapter_path, loaded_lora, err) ||
+                !sa3::train_restore_adapter_values(lora, loaded_lora, err) ||
+                !sa3::load_train_state_gguf(resume_state_path, lora, loop, loaded_progress, err)) {
+                throw std::runtime_error(err);
+            }
+            if (!sa3::train_validate_resume_adapter_fingerprint(
+                    resume_adapter_path, loaded_progress.adapter_fingerprint, err))
+                throw std::runtime_error(err);
+            if (!sa3::train_validate_resume_compatibility(loaded_progress.compatibility,
+                                                          resume_compatibility, err))
+                throw std::runtime_error(err);
+            if (loaded_progress.adapter_file != std::filesystem::path(resume_adapter_path).filename().string())
+                throw std::runtime_error("trainer state points to a different adapter checkpoint");
+            if (loaded_progress.order.size() != train_pairs.size())
+                throw std::runtime_error("resume dataset order length does not match the training split");
+            std::vector<bool> seen(train_pairs.size(), false);
+            for (uint64_t index : loaded_progress.order) {
+                if (index >= train_pairs.size() || seen[(size_t)index])
+                    throw std::runtime_error("resume dataset order is not a valid permutation");
+                seen[(size_t)index] = true;
+            }
+            resume_start_step = loop.step;
+            if (cfg.max_steps > 0 && loop.step > cfg.max_steps)
+                throw std::runtime_error("resume step exceeds --steps (which is the total target step)");
+            std::fprintf(stderr, "[resume] step %d from %s\n", loop.step, resume_state_path.c_str());
+        }
 
         const int target_samples = cfg.duration_sec > 0.0f ? (int)(cfg.duration_sec * 44100.0f + 0.5f)
                                                            : cfg.frames * sc.patch_size * sc.output_seg;
@@ -276,7 +343,6 @@ int main(int argc, char** argv) {
         const bool use_ckpt = cfg.ckpt_backward &&
                               (cfg.adapter_type == "lora" || cfg.adapter_type == "dora-rows");
         int graph_frames = 0, graph_cond_dim = 0, graph_ctx_len = 0;
-        sa3::TrainLoopState loop;
         sa3::TrainAdamWParams opt;
         opt.learning_rate = cfg.learning_rate;
         opt.beta1 = cfg.adam_beta1;
@@ -317,20 +383,66 @@ int main(int argc, char** argv) {
             throw std::runtime_error(err);
         std::vector<size_t> order(train_pairs.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        int epoch = 0;
+        size_t first_oi = 0;
+        bool restored_epoch_order = false;
+        if (resuming) {
+            if (loaded_progress.epoch > (uint64_t)std::numeric_limits<int>::max())
+                throw std::runtime_error("resume epoch exceeds the supported range");
+            epoch = (int)loaded_progress.epoch;
+            first_oi = (size_t)loaded_progress.next_sample;
+            for (size_t i = 0; i < order.size(); ++i) order[i] = (size_t)loaded_progress.order[i];
+            if (!sa3::train_restore_random_state(loaded_progress.shuffle_rng, shuffle_rng, "shuffle", err) ||
+                !sa3::train_restore_random_state(loaded_progress.crop_rng, crop_rng, "crop", err) ||
+                !sa3::train_restore_random_state(loaded_progress.cfg_rng, cfg_rng, "CFG dropout", err) ||
+                !sa3::train_restore_random_state(loaded_progress.prompt_rng, prompt_rng, "prompt", err) ||
+                !sa3::train_restore_random_state(loaded_progress.inpaint_rng, inpaint_rng, "inpainting", err) ||
+                !sampler.restore_state(loaded_progress.diffusion_rng, err)) throw std::runtime_error(err);
+            restored_epoch_order = true;
+        }
 
-        auto do_checkpoint = [&]() {
-            const std::string ckpt = (std::filesystem::path(cfg.output_dir) /
-                ("adapter-step-" + std::to_string(loop.step) + ".gguf")).string();
-            if (!sa3::write_train_lora_gguf(lora, ckpt, err)) throw std::runtime_error(err);
-            std::printf("checkpoint: %s\n", ckpt.c_str());
+        auto capture_progress = [&](int checkpoint_epoch, size_t next_sample) {
+            sa3::TrainResumeProgress progress;
+            progress.epoch = (uint64_t)checkpoint_epoch;
+            progress.next_sample = (uint64_t)next_sample;
+            progress.compatibility = resume_compatibility;
+            for (size_t index : order) progress.order.push_back((uint64_t)index);
+            progress.shuffle_rng = sa3::train_serialize_random_state(shuffle_rng);
+            progress.crop_rng = sa3::train_serialize_random_state(crop_rng);
+            progress.cfg_rng = sa3::train_serialize_random_state(cfg_rng);
+            progress.prompt_rng = sa3::train_serialize_random_state(prompt_rng);
+            progress.inpaint_rng = sa3::train_serialize_random_state(inpaint_rng);
+            progress.diffusion_rng = sampler.serialize_state();
+            return progress;
         };
 
-        int epoch = 0;
-        bool stop = false;
+        int last_checkpoint_step = -1;
+        auto do_checkpoint = [&](int checkpoint_epoch, size_t next_sample) {
+            const std::string suffix = "-step-" + std::to_string(loop.step) + ".gguf";
+            const std::string adapter = (std::filesystem::path(cfg.output_dir) / ("adapter" + suffix)).string();
+            const std::string state = (std::filesystem::path(cfg.output_dir) / ("trainer-state" + suffix)).string();
+            if (!sa3::write_train_checkpoint_pair(lora, loop, capture_progress(checkpoint_epoch, next_sample),
+                                                  adapter, state, err)) throw std::runtime_error(err);
+            last_checkpoint_step = loop.step;
+            std::printf("checkpoint: %s\ntrainer state: %s\n", adapter.c_str(), state.c_str());
+        };
+
+        int cursor_epoch = epoch;
+        size_t cursor_next_sample = first_oi;
+        bool stop = cfg.max_steps > 0 && loop.step >= cfg.max_steps;
+        if (cfg.max_epochs > 0 && epoch >= cfg.max_epochs) stop = true;
         while (!stop) {
-            if (multi_epoch) std::shuffle(order.begin(), order.end(), shuffle_rng);
-            for (size_t oi = 0; oi < order.size() && !stop; ++oi) {
+            size_t oi_begin = 0;
+            if (restored_epoch_order) {
+                oi_begin = first_oi;
+                restored_epoch_order = false;
+            } else if (multi_epoch) {
+                std::shuffle(order.begin(), order.end(), shuffle_rng);
+            }
+            for (size_t oi = oi_begin; oi < order.size() && !stop; ++oi) {
                 const auto& pair = train_pairs[order[oi]];
+                cursor_epoch = epoch;
+                cursor_next_sample = oi + 1;
                 // Per-phase profiling (SA3_TRAIN_PROFILE=1): decode/AE-encode/T5-cond/DiT/AdamW ms.
                 const bool prof = getenv("SA3_TRAIN_PROFILE") != nullptr;
                 auto tnow = [] { return std::chrono::steady_clock::now(); };
@@ -564,7 +676,8 @@ int main(int argc, char** argv) {
                 metrics << ",\"lr\":" << applied_lr << ",\"loss\":" << loss
                         << ",\"grad_norm\":" << grad_norm << "}\n";
                 metrics.flush();
-                if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
+                if (updated && cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0)
+                    do_checkpoint(epoch, oi + 1);
                 if (cfg.max_steps > 0 && loop.step >= cfg.max_steps) stop = true;
             }
             ++epoch;
@@ -574,11 +687,21 @@ int main(int argc, char** argv) {
         if (accum.count > 0) {
             sa3::TrainAdamWParams step_opt = scheduled_opt();
             if (!sa3::train_apply_accumulated_adamw(lora, accum, loop, step_opt, err)) throw std::runtime_error(err);
-            if (cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0) do_checkpoint();
+            if (cfg.checkpoint_every > 0 && (loop.step % cfg.checkpoint_every) == 0)
+                do_checkpoint(cursor_epoch, cursor_next_sample);
         }
 
+        if (loop.step <= 0) throw std::runtime_error("training completed without an optimizer update");
+        if (last_checkpoint_step != loop.step) {
+            const std::string current_adapter = (std::filesystem::path(cfg.output_dir) /
+                ("adapter-step-" + std::to_string(loop.step) + ".gguf")).string();
+            const bool same_resume_pair = resuming && loop.step == resume_start_step &&
+                std::filesystem::absolute(current_adapter).lexically_normal() ==
+                std::filesystem::absolute(resume_adapter_path).lexically_normal();
+            if (!same_resume_pair) do_checkpoint(cursor_epoch, cursor_next_sample);
+        }
         const std::string final_ckpt = (std::filesystem::path(cfg.output_dir) / "adapter-final.gguf").string();
-        if (!sa3::write_train_lora_gguf(lora, final_ckpt, err)) throw std::runtime_error(err);
+        if (!sa3::write_train_final_adapter(lora, final_ckpt, err)) throw std::runtime_error(err);
         std::printf("final checkpoint: %s\n", final_ckpt.c_str());
 
         std::string preview_prompt = cfg.eval_caption;

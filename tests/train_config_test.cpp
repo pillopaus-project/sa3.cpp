@@ -78,6 +78,21 @@ int main() {
         fails += expect(sa3::validate_train_config(c, err), "validated CLI config");
     }
     {
+        sa3::TrainConfig c;
+        c.dataset_dir = "../data";
+        std::string err;
+        char a0[] = "test";
+        char a1[] = "--resume";
+        char a2[] = "runs/example/trainer-state-step-500.gguf";
+        char* argv[] = {arg(a0), arg(a1), arg(a2)};
+        fails += expect(sa3::train_parse_args(3, argv, c, err), "resume CLI parse succeeds");
+        sa3::train_finalize_defaults(c);
+        fails += expect(c.resume_path == a2, "resume path parsed");
+        fails += expect(std::filesystem::path(c.output_dir).lexically_normal() ==
+                        std::filesystem::path(a2).parent_path().lexically_normal(),
+                        "resume defaults output to checkpoint directory");
+    }
+    {
         const char* path = "train_config_test.json";
         {
             std::ofstream f(path);

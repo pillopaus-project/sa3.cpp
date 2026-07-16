@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,29 @@ public:
             return (float)(1.0 - rescaled);
         }
         return uniform_(rng_);
+    }
+
+    // std::normal_distribution may retain a cached second variate, so exact continuation must
+    // persist the distributions as well as the engine. The standard stream operators capture both.
+    std::string serialize_state() const {
+        std::ostringstream out;
+        out << rng_ << '\n' << uniform_ << '\n' << normal_;
+        return out.str();
+    }
+
+    bool restore_state(const std::string& state, std::string& err) {
+        std::istringstream in(state);
+        std::mt19937_64 rng;
+        std::uniform_real_distribution<float> uniform;
+        std::normal_distribution<float> normal;
+        if (!(in >> rng >> uniform >> normal)) {
+            err = "invalid diffusion sampler state";
+            return false;
+        }
+        rng_ = rng;
+        uniform_ = uniform;
+        normal_ = normal;
+        return true;
     }
 
 private:

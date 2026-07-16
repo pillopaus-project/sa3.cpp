@@ -129,28 +129,39 @@ compose that caption with general metadata tags or path-derived text.
 The output directory contains:
 
 - `adapter-step-*.gguf`
+- `trainer-state-step-*.gguf`
 - `adapter-final.gguf`
 - `metrics.jsonl`
 - `config.snapshot.txt`
+- `config.resume.snapshot.txt` (latest resumed invocation, when applicable)
 - `command.txt`
 
-## Resume Training (Planned)
+## Resume Training
 
-Exact training resumption is not implemented in the current CLI yet. The periodic
-`adapter-step-*.gguf` files are complete inference-ready adapters, but they do not contain the
-AdamW moments, optimizer/LR-scheduler step, dataset cursor and shuffled order, or the stochastic
-states used for crops, prompts, CFG dropout, inpainting, timesteps, and diffusion noise. Loading
-only the adapter tensors would be a weight warm-start, not a faithful continuation of the run.
+Every step checkpoint is an immutable pair. `adapter-step-N.gguf` is the normal, lean adapter and
+can be passed directly to `sa3-generate`; `trainer-state-step-N.gguf` is its training-only sidecar.
+The sidecar contains the AdamW moments, optimizer/LR-scheduler step, dataset cursor and shuffled
+order, plus the stochastic states used for crops, prompts, CFG dropout, inpainting, timesteps, and
+diffusion noise. Keeping those tensors separate prevents inference from loading optimizer state.
 
-Restart-safe training is a priority, particularly for long CPU runs. The planned design keeps the
-inference adapter lean and writes a separate trainer-state sidecar at each checkpoint. A future
-`--resume` option will restore the adapter, optimizer, scheduler, dataset position, and random
-streams together so the next update continues from the checkpoint rather than beginning a new
-optimization trajectory. A separately named `--init-adapter` option may be added for intentional
-weight-only warm-starts; it will not be presented as resume.
+Pass either member of the pair to `--resume`. `--steps` is the total target step, not the number of
+additional updates. For example, this continues a step-500 CPU or CUDA run through step 1500:
 
-Until that support lands, `--checkpoint-every` protects intermediate adapter results for inference
-and evaluation, but an interrupted process cannot continue the same optimizer run.
+```powershell
+sa3-train --dataset C:\datasets\my-training-set --resume C:\dev\sa3.cpp\train-runs\my-training-set\trainer-state-step-500.gguf --steps 1500
+```
+
+When `--out` is omitted, a resumed run continues in the checkpoint's directory and appends to
+`metrics.jsonl` and `command.txt`. Use `--out` to branch the continuation into a new directory.
+The trainer rejects changes to trajectory-defining model, dataset, adapter, optimizer, conditioning,
+or sampling settings. `--steps`, checkpoint cadence, output location, and evaluation-only settings
+may change. Resume the latest checkpoint when continuing in place because step pairs are immutable;
+this prevents an older continuation from silently overwriting newer state.
+
+The final update is always saved as a resumable numbered pair even when it does not fall on
+`--checkpoint-every`; `adapter-final.gguf` remains the convenient inference copy. Weight-only
+warm-starting is intentionally not called resume and may later be exposed separately as
+`--init-adapter`.
 
 ## Generate With The Adapter
 

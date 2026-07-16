@@ -10,6 +10,21 @@
 
 namespace sa3 {
 
+// Adapter/trainer checkpoints are converted immediately into host vectors. Force their temporary
+// GGUF tensors onto CPU even when CUDA/Vulkan is registered, then release that backend with the
+// loaded model. This keeps resume state (especially AdamW moments) out of accelerator memory.
+struct TrainCheckpointCpuBackend {
+    ggml_backend_t backend = nullptr;
+    TrainCheckpointCpuBackend() {
+        load_dynamic_backends_once();
+        backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+        if (!backend) throw std::runtime_error("failed to initialize CPU backend for checkpoint loading");
+    }
+    ~TrainCheckpointCpuBackend() { if (backend) ggml_backend_free(backend); }
+    TrainCheckpointCpuBackend(const TrainCheckpointCpuBackend&) = delete;
+    TrainCheckpointCpuBackend& operator=(const TrainCheckpointCpuBackend&) = delete;
+};
+
 inline void train_checkpoint_tensor_to_f32(ggml_tensor* t, std::vector<float>& out) {
     out.resize((size_t)ggml_nelements(t));
     ggml_backend_tensor_get(t, out.data(), 0, out.size() * sizeof(float));
@@ -94,9 +109,9 @@ inline bool write_train_lora_gguf(const TrainLoraState& state, const std::string
 }
 
 inline bool load_train_lora_gguf(const std::string& path, TrainLoraState& state, std::string& err) {
-    GgufModel g;
     try {
-        g = load_gguf(path.c_str());
+        TrainCheckpointCpuBackend cpu;
+        GgufModel g = load_gguf(path.c_str(), cpu.backend);
         int ti = gguf_find_key(g.gguf, "lora.adapter_type");
         state = TrainLoraState{};
         state.adapter_type = ti < 0 ? "lora" : gguf_get_val_str(g.gguf, ti);
@@ -145,7 +160,7 @@ inline bool load_train_lora_gguf(const std::string& path, TrainLoraState& state,
             }
         }
         for (auto& kv : by_stem) state.params.push_back(std::move(kv.second));
-        g.free();
+        g.free(); // must release tensors before the explicitly owned CPU backend leaves scope
     } catch (const std::exception& e) {
         err = e.what();
         return false;

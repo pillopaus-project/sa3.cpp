@@ -70,7 +70,9 @@ sa3-train --dataset C:\dev\datasets\my-training-set --steps 1500
 ```
 
 The validated medium-base DoRA recipe is the default; model, optimizer, crop, conditioning, and
-output settings remain available as overrides for advanced runs.
+output settings remain available as overrides for advanced runs. Periodic checkpoints are
+restart-safe: `--resume trainer-state-step-N.gguf --steps TOTAL` restores the adapter, AdamW,
+dataset cursor, and stochastic streams exactly.
 
 what works:
 
