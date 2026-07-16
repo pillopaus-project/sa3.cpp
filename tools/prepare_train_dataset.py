@@ -5,8 +5,8 @@ sa3-train expects `<out>/<split>/{filelist.txt, metadata.jsonl}` plus the audio 
 same-stem .txt caption) reachable under each split. It requires distinct, non-contaminating
 train/test/evaluation splits, so held-out splits are created (empty by default).
 
-    python tools/prepare_train_dataset.py --input-dir "C:\\dev\\datasets\\audio\\Classics - Ratatat" \
-        --out ../datasets/ratatat --holdout 0
+    python tools/prepare_train_dataset.py --input-dir "C:\\datasets\\my-audio" \
+        --out "C:\\datasets\\my-training-set" --holdout 0
 
 Requires only the standard library. Audio is copied (or symlinked with --symlink); ffmpeg in
 sa3-train decodes whatever container you point it at (wav/mp3/...).

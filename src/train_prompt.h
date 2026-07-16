@@ -171,7 +171,7 @@ inline std::string prompt_build_path(const PromptMetadata& md, const PromptConfi
     return join(dirs, filename);
 }
 
-// ── Main entry point: port of get_custom_metadata (prompt only; lyrics unused here) ───────────
+// ── Main entry point: port of get_custom_metadata ─────────────────────────────────────────────
 inline std::string prompt_compose(const PromptConfig& pc, const PromptMetadata& md,
                                   std::mt19937_64& rng) {
     struct Cand { const char* method; std::string text; int weight; };

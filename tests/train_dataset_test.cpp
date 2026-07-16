@@ -19,7 +19,6 @@ int main() {
     const fs::path root = fs::temp_directory_path() / "sa3_train_dataset_test";
     fs::remove_all(root);
     fs::create_directories(root / "train" / "audio");
-    fs::create_directories(root / "train" / "lyrics");
     {
         std::ofstream(root / "train" / "audio" / "a.mp3") << "mp3";
         std::ofstream(root / "train" / "audio" / "a.txt") << "caption";
@@ -33,7 +32,7 @@ int main() {
     {
         std::ofstream f(root / "train" / "metadata.jsonl");
         f << "{\"id\":\"a\",\"split\":\"train\",\"audio_path\":\"audio/a.mp3\","
-          << "\"caption_path\":\"audio/a.txt\",\"lyrics_path\":\"lyrics/a.txt\","
+          << "\"caption_path\":\"audio/a.txt\","
           << "\"audio_sha256\":\"abc\",\"duration_seconds\":1.5}\n";
         f << "{\"id\":\"b\",\"split\":\"train\",\"audio_path\":\"audio/b.mp3\","
           << "\"caption_path\":\"audio/b.txt\",\"duration_seconds\":2}\n";

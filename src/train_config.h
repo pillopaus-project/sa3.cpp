@@ -5,8 +5,11 @@
 
 #include <cctype>
 #include <cerrno>
+#include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -22,44 +25,43 @@ struct TrainConfig {
     std::string cond_path;
     std::string dit_path;
     std::string same_path;
-    std::string dataset_dir = "../datasets/mnesia-audio-v1";
+    std::string dataset_dir;
     std::string train_split = "train";
     std::string test_split = "test";
     std::string evaluation_split = "evaluation";
-    std::string adapter_type = "lora";
-    int rank = 8;
-    float alpha = 8.0f;
+    // Reference train_lora.py / validated underfit-style defaults. The common path should only
+    // need --dataset and, optionally, --steps; every value remains individually overridable.
+    std::string adapter_type = "dora-rows";
+    int rank = 16;
+    float alpha = 16.0f;
     float learning_rate = 1.0e-4f;
-    float weight_decay = 0.0f;
+    float weight_decay = 0.01f;
     float adam_beta1 = 0.9f;
-    float adam_beta2 = 0.999f;
+    float adam_beta2 = 0.95f;
     float adam_eps = 1.0e-8f;
     int batch_size = 1;
-    int frames = 128;
+    int cpu_threads = 0;  // 0 = SA3_THREADS, then ggml default; only affects CPU backends
+    int frames = 512;
     float duration_sec = 0.0f;
-    std::string precision = "f32";
-    unsigned long long seed = 0;
-    int checkpoint_every = 1;
-    std::string output_dir = "train-runs/sa3-lora";
-    std::string resume_adapter;
+    unsigned long long seed = 42;
+    int checkpoint_every = 500;
+    // Empty means train_finalize_defaults() chooses train-runs/<dataset>[-N].
+    std::string output_dir;
     std::string optimizer = "adamw";
     std::string svd_bases_path;   // optional GGUF of frozen U/V bases for -xs adapters (exact-parity path)
-    std::string prompt_mode = "caption";
     // Prompt tag-composition (Stage 13). When set, per sample the prompt is composed from the
     // dashboard-style prompt_config (tags/paths/fixed weighted choice) instead of using the raw
     // caption; the caption feeds the `prompt` tag. Point this at the dataset.json (or a bare
-    // prompt_config object) used by the reference run. Empty => raw caption (--prompt-mode).
+    // prompt_config object) used by the reference run. Empty => raw caption.
     std::string prompt_config_path;
     std::string eval_caption;
-    int eval_every = 1;
-    int generation_steps = 8;
     // Multi-epoch training (Stage 1). 0 = single pass over the dataset (legacy). >0 = loop with
     // per-epoch shuffle until this many optimizer updates. max_epochs caps passes when set.
-    int max_steps = 0;
+    int max_steps = 10000;
     int max_epochs = 0;
     // Random-crop windowing (Stage 2): pick a random window start per sample instead of the
     // fixed front (start=0) window. Matches the reference pre-encode + random-crop regime.
-    bool random_crop = false;
+    bool random_crop = true;
     // Gradient-checkpointed backward (train_ckpt.h): run the DiT backward block-by-block so peak
     // activation memory is one block's working set instead of the whole graph (the monolithic
     // fwd+bwd graph needs ~9.6 GB at 512 frames and pages out of VRAM on 8 GB cards). Only the
@@ -82,7 +84,7 @@ struct TrainConfig {
     // ignored. false = weighted-pooled mean over gen+context.
     bool mask_padding_attention = true;
     // Global gradient-norm clip (Stage 3): 0 = off. Reference training uses 1.0.
-    float grad_clip = 0.0f;
+    float grad_clip = 1.0f;
     // Timestep sampler (Stage 5): "uniform" or "trunc_logit_normal" (the reference default).
     std::string timestep_sampler = "trunc_logit_normal";
     // Training-time distribution shift on sampled timesteps (Stage 10). The reference warps t
@@ -104,7 +106,7 @@ struct TrainConfig {
     // computes loss on the generated region + mask_loss_weight*context region — matching
     // training/diffusion.py + models/inpainting.py. Needs a DiT with local-cond weights (medium
     // has them). ratatat-2: probs [0.2,0.6,0.2] (RANDOM_SEGMENTS/FULL/CAUSAL), mask_loss_weight 1.0.
-    bool inpainting = false;
+    bool inpainting = true;
     std::string inpaint_mask_probs = "0.2,0.6,0.2";
     float mask_loss_weight = 1.0f;
     // Learning-rate scheduler (Stage 11). "constant" keeps learning_rate fixed (legacy). "inverse_lr"
@@ -112,7 +114,7 @@ struct TrainConfig {
     // The lr_* params default to the ratatat-2 reference config, so "--lr-scheduler inverse_lr" alone
     // reproduces it. warmup 0.995 gives a cold start (~0.5% of base lr on step 0) ramping over ~1k
     // steps; inv_gamma 1e6 makes the inverse decay negligible over a few-thousand-step run.
-    std::string lr_scheduler = "constant";
+    std::string lr_scheduler = "inverse_lr";
     float lr_inv_gamma = 1.0e6f;
     float lr_power = 0.5f;
     float lr_warmup = 0.995f;
@@ -165,12 +167,14 @@ inline bool train_parse_i32(const std::string& text, int& out) {
     char* end = nullptr;
     errno = 0;
     long v = std::strtol(text.c_str(), &end, 10);
-    if (errno || !end || *end != '\0') return false;
+    if (errno || !end || *end != '\0' || v < std::numeric_limits<int>::min() ||
+        v > std::numeric_limits<int>::max()) return false;
     out = (int)v;
     return true;
 }
 
 inline bool train_parse_u64(const std::string& text, unsigned long long& out) {
+    if (text.empty() || text[0] == '-') return false;
     char* end = nullptr;
     errno = 0;
     unsigned long long v = std::strtoull(text.c_str(), &end, 10);
@@ -183,7 +187,7 @@ inline bool train_parse_f32(const std::string& text, float& out) {
     char* end = nullptr;
     errno = 0;
     float v = std::strtof(text.c_str(), &end);
-    if (errno || !end || *end != '\0') return false;
+    if (errno || !end || *end != '\0' || !std::isfinite(v)) return false;
     out = v;
     return true;
 }
@@ -232,21 +236,17 @@ inline bool train_set_config_value(TrainConfig& c, const std::string& key, const
     else if (key == "adam-beta2" || key == "adam_beta2") return set_f(c.adam_beta2);
     else if (key == "adam-eps" || key == "adam_eps") return set_f(c.adam_eps);
     else if (key == "batch-size" || key == "batch_size") return set_i(c.batch_size);
+    else if (key == "threads" || key == "cpu-threads" || key == "cpu_threads") return set_i(c.cpu_threads);
     else if (key == "frames") return set_i(c.frames);
     else if (key == "duration" || key == "duration-sec" || key == "duration_sec") return set_f(c.duration_sec);
-    else if (key == "precision") c.precision = value;
     else if (key == "seed") return set_u(c.seed);
     else if (key == "checkpoint-every" || key == "checkpoint_every") return set_i(c.checkpoint_every);
     else if (key == "out" || key == "output-dir" || key == "output_dir") c.output_dir = value;
-    else if (key == "resume-adapter" || key == "resume_adapter") c.resume_adapter = value;
     else if (key == "optimizer") c.optimizer = value;
     else if (key == "svd-bases" || key == "svd_bases" || key == "svd-bases-path" || key == "svd_bases_path") c.svd_bases_path = value;
-    else if (key == "prompt-mode" || key == "prompt_mode") c.prompt_mode = value;
     else if (key == "prompt-config" || key == "prompt_config") c.prompt_config_path = value;
     else if (key == "eval-caption" || key == "eval_caption") c.eval_caption = value;
-    else if (key == "eval-every" || key == "eval_every") return set_i(c.eval_every);
-    else if (key == "generation-steps" || key == "generation_steps") return set_i(c.generation_steps);
-    else if (key == "max-steps" || key == "max_steps") return set_i(c.max_steps);
+    else if (key == "max-steps" || key == "max_steps" || key == "steps") return set_i(c.max_steps);
     else if (key == "max-epochs" || key == "max_epochs" || key == "epochs") return set_i(c.max_epochs);
     else if (key == "grad-clip" || key == "grad_clip" || key == "gradient-clip-val") return set_f(c.grad_clip);
     else if (key == "timestep-sampler" || key == "timestep_sampler") c.timestep_sampler = value;
@@ -316,6 +316,8 @@ inline bool train_apply_json_config(TrainConfig& c, const std::string& path, std
         std::string text;
         if (yyjson_is_str(val)) {
             text = yyjson_get_str(val);
+        } else if (yyjson_is_bool(val)) {
+            text = yyjson_get_bool(val) ? "true" : "false";
         } else if (yyjson_is_int(val)) {
             text = std::to_string(yyjson_get_sint(val));
         } else if (yyjson_is_uint(val)) {
@@ -369,9 +371,46 @@ inline bool train_parse_args(int argc, char** argv, TrainConfig& c, std::string&
     return true;
 }
 
+// Fill path defaults after config files and CLI flags have been applied. A dataset-local
+// prompt_config.json is an intentional opt-in signal, so using it automatically preserves the
+// gary4local/underfit prompt composition without adding another flag to the normal command.
+inline void train_finalize_defaults(TrainConfig& c) {
+    namespace fs = std::filesystem;
+    if (c.prompt_config_path.empty() && !c.dataset_dir.empty()) {
+        const fs::path prompt = fs::path(c.dataset_dir) / "prompt_config.json";
+        std::error_code ec;
+        if (fs::is_regular_file(prompt, ec)) c.prompt_config_path = prompt.string();
+    }
+
+    if (c.output_dir.empty() && !c.dataset_dir.empty()) {
+        fs::path dataset = fs::path(c.dataset_dir).lexically_normal();
+        std::string name = dataset.filename().string();
+        if (name.empty()) name = dataset.parent_path().filename().string();
+        if (name.empty() || name == "." || name == "..") name = "sa3-lora";
+
+        const fs::path base = fs::path("train-runs") / name;
+        fs::path candidate = base;
+        std::error_code ec;
+        for (int suffix = 2; fs::exists(candidate, ec); ++suffix) {
+            ec.clear();
+            candidate = fs::path(base.string() + "-" + std::to_string(suffix));
+        }
+        c.output_dir = candidate.string();
+    }
+}
+
 inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     if (c.dataset_dir.empty()) { err = "dataset_dir is required"; return false; }
     if (c.output_dir.empty()) { err = "output_dir is required"; return false; }
+    if (c.model_variant != "medium" && c.model_variant != "small-music" &&
+        c.model_variant != "small-sfx") {
+        err = "unsupported model variant: " + c.model_variant;
+        return false;
+    }
+    if (c.encoding != "f16" && c.encoding != "F16" && c.encoding != "f32" && c.encoding != "F32") {
+        err = "unsupported encoding (expected f16|f32): " + c.encoding;
+        return false;
+    }
     if (c.train_split.empty() || c.test_split.empty() || c.evaluation_split.empty()) {
         err = "train/test/evaluation split names are required";
         return false;
@@ -390,13 +429,18 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
     if (c.rank <= 0) { err = "rank must be positive"; return false; }
     if (c.alpha <= 0.0f) { err = "alpha must be positive"; return false; }
     if (c.learning_rate <= 0.0f) { err = "learning_rate must be positive"; return false; }
-    if (c.batch_size <= 0) { err = "batch_size must be positive"; return false; }
-    if (c.frames <= 0 && c.duration_sec <= 0.0f) { err = "frames or duration_sec must be positive"; return false; }
-    if (c.optimizer != "adamw") { err = "unsupported optimizer: " + c.optimizer; return false; }
-    if (c.prompt_mode != "caption" && c.prompt_mode != "caption-lyrics" && c.prompt_mode != "lyrics") {
-        err = "unsupported prompt_mode: " + c.prompt_mode;
+    if (c.weight_decay < 0.0f) { err = "weight_decay must be non-negative"; return false; }
+    if (c.adam_beta1 < 0.0f || c.adam_beta1 >= 1.0f ||
+        c.adam_beta2 < 0.0f || c.adam_beta2 >= 1.0f) {
+        err = "Adam betas must be in [0,1)";
         return false;
     }
+    if (c.adam_eps <= 0.0f) { err = "adam_eps must be positive"; return false; }
+    if (c.batch_size <= 0) { err = "batch_size must be positive"; return false; }
+    if (c.cpu_threads < 0) { err = "threads must be positive (or 0 for automatic)"; return false; }
+    if (c.checkpoint_every < 0) { err = "checkpoint_every must be non-negative (0 = off)"; return false; }
+    if (c.frames <= 0 && c.duration_sec <= 0.0f) { err = "frames or duration_sec must be positive"; return false; }
+    if (c.optimizer != "adamw") { err = "unsupported optimizer: " + c.optimizer; return false; }
     if (c.timestep_sampler != "uniform" && c.timestep_sampler != "trunc_logit_normal") {
         err = "unsupported timestep_sampler: " + c.timestep_sampler;
         return false;
@@ -428,15 +472,18 @@ inline bool validate_train_config(const TrainConfig& c, std::string& err) {
 
 inline std::string train_config_usage(const char* argv0) {
     std::ostringstream ss;
-    ss << "usage: " << argv0 << " [--config train.json] [training options]\n"
+    ss << "usage: " << argv0 << " --dataset DIR [--steps N] [training options]\n"
+       << "example: " << argv0 << " --dataset C:\\datasets\\my-audio --steps 1500\n"
        << "core options: --model medium|small-music|small-sfx --models-dir DIR --dataset DIR --out DIR\n"
+       << "              --steps N (alias: --max-steps; default 10000)\n"
        << "adapter: --adapter-type lora|dora-rows|dora-cols|bora|*-xs --rank N --alpha F\n"
-       << "optimization: --learning-rate F --batch-size N --frames N --duration SEC --seed N\n"
+       << "optimization: --learning-rate F --batch-size N --threads N --frames N --duration SEC --seed N\n"
        << "          --lr-scheduler constant|inverse_lr [--lr-inv-gamma F --lr-power F --lr-warmup F --lr-final F]\n"
        << "schedule: --timestep-sampler uniform|trunc_logit_normal --dist-shift none|full|flux|logsnr\n"
        << "          --dist-shift-effective-length BOOL (full-file effective length vs crop frames)\n"
-       << "conditioning: --prompt-mode caption|caption-lyrics|lyrics --cfg-dropout-prob F (default 0.1)\n"
+       << "conditioning: --cfg-dropout-prob F (default 0.1)\n"
        << "          --prompt-config dataset.json (tag/path prompt composition per sample)\n"
+       << "reference defaults: dora-rows rank 16, 512 frames, seed 42, AdamW + inverse_lr, inpainting on\n"
        << "inpainting: --inpainting BOOL --inpaint-mask-probs \"0.2,0.6,0.2\" --mask-loss-weight F\n"
        << "memory: --checkpoint-backward BOOL (default true; per-block backward, fits VRAM)\n"
        << "latents: --pre-encode BOOL (default true; encode files once, crop in latent space)\n"

@@ -119,8 +119,21 @@ quantize), mirroring acestep keeping its VAE at BF16.
 ## license
 
 stable-audio-3 is under the **Stability AI Community License**. user is in the Stability org and
-in contact with Zach for the proper hf packaging (license tag, gating, card boilerplate). cards
-are drafted to the convention here; **confirm license tagging/gating with Zach before publishing.**
+the published GGUF repositories mirror the upstream license/gating pattern. Each training-base
+repository includes the pinned upstream `LICENSE.md`, the required Stability attribution in
+`NOTICE`, its model card, and `SHA256SUMS`.
+
+## training-base release staging
+
+`tools/stage_training_base_repos.py` is optional maintainer tooling, not a runtime downloader or an
+automatic uploader. Given the converted F16/F32 GGUF directory, it prepares all three repository
+trees, fetches and checksum-verifies the pinned upstream license, refuses to replace mismatched
+files, hard-links large GGUFs when possible, and writes release checksums. Review the staged trees
+before uploading them with the standard Hugging Face tooling.
+
+```sh
+python tools/stage_training_base_repos.py --gguf-dir /path/to/converted --out /path/to/staging
+```
 
 ## download contract
 

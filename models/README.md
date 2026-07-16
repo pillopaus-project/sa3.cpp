@@ -75,9 +75,12 @@ inference:
 | `small-sfx` | `stabilityai/stable-audio-3-small-sfx-base` | `stabilityai/stable-audio-3-small-sfx` |
 
 `sa3-train` therefore requires `stable-audio-3-<variant>-base-dit-*-F16.gguf` (or F32 according to
-`--encoding`) and deliberately refuses to fall back to the inference DiT. Convert the base checkpoint
-with `tools/convert_dit.py`, quantize it with `tools/quantize_gguf.py`, or pass its GGUF explicitly with
-`--dit`. The tokenizer, T5 encoder, conditioner, and SAME autoencoder remain the normal inference files.
+`--encoding`) and deliberately refuses to fall back to the inference DiT. Before loading weights it
+also requires `dit.training_base=true` and a matching `general.finetune` value in the GGUF metadata;
+renaming an inference model cannot bypass the check. Convert the base checkpoint with
+`tools/convert_dit.py --training-base`, quantize it with `tools/quantize_gguf.py`, or pass its marked
+GGUF explicitly with `--dit`. The tokenizer, T5 encoder, conditioner, and SAME autoencoder remain the
+normal inference files.
 
 Download the complete inference + training set with:
 

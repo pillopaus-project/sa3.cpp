@@ -10,7 +10,7 @@ The canonical training tree keeps a per-feature native CTest suite for the LoRA 
 - adapter target inventory, LoRA/DoRA/BoRA/XS shape checks, infeasible-rank rejection, and effective-weight graph shapes;
 - AdamW optimizer math;
 - GGUF adapter checkpoint write/load round-trip through the inference loader contract;
-- held-out generation command construction.
+- published model naming, download-plan, and release-metadata helpers.
 
 When CMake is configured with testing enabled, the tests are registered with the shared labels `non-gpu;training;lora`:
 
@@ -22,4 +22,6 @@ ctest --test-dir build --output-on-failure -L training
 
 The same executables can still be run directly from `build/bin` or `build-cuda/bin` for targeted debugging.
 
-GPU and full model-asset acceptance remain separate. Real MNESIA fitting and `sa3-generate --lora` held-out WAV generation require local GGUF model files and an appropriate backend; see `docs/TRAINING_ACCEPTANCE.md` for the current acceptance transcript.
+GPU and full model-asset acceptance remain separate. End-to-end fitting and
+`sa3-generate --lora` evaluation require the published inference GGUFs, the matching training-base
+DiT, a captioned dataset, and an appropriate backend; see [TRAINING.md](TRAINING.md).

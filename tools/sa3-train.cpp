@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -39,32 +40,23 @@ static std::string read_text_file(const std::string& path) {
     return s.substr(b, e - b + 1);
 }
 
-static std::string read_optional_text_file(const std::string& path) {
-    if (path.empty()) return {};
-    std::ifstream f(path);
-    if (!f) return {};
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-}
-
-static std::string compose_train_prompt(const sa3::TrainConfig& cfg,
-                                        const sa3::TrainAudioCaptionPair& pair) {
-    const std::string caption = read_text_file(pair.caption_path);
-    const std::string lyrics = read_optional_text_file(pair.lyrics_path);
-    if (cfg.prompt_mode == "lyrics") {
-        return lyrics.empty() ? caption : ("Lyrics:\n" + lyrics);
+// Keep the final preview command friendly to both cmd.exe and PowerShell for ordinary paths and
+// prompts. Windows paths cannot contain a double quote; prompt quotes are rendered as apostrophes.
+static std::string preview_cli_quote(std::string text) {
+    for (char& ch : text) {
+        if (ch == '\r' || ch == '\n' || ch == '\t') ch = ' ';
+        else if (ch == '"') ch = '\'';
     }
-    if (cfg.prompt_mode == "caption-lyrics" && !lyrics.empty()) {
-        return caption + "\nLyrics:\n" + lyrics;
-    }
-    return caption;
+    while (text.find("  ") != std::string::npos) text.replace(text.find("  "), 2, " ");
+    return "\"" + text + "\"";
 }
 
 // Stage 13: build the training prompt. With a prompt-config loaded, compose per sample from
-// tags/paths/fixed (the caption feeds the `prompt` tag); otherwise fall back to the caption/lyrics
-// modes. `prompt_rng` supplies the per-sample randomness (shuffle/subset/method choice).
-static std::string build_train_prompt(const sa3::TrainConfig& cfg, const sa3::PromptConfig& pcfg,
+// tags/paths/fixed (the caption feeds the `prompt` tag); otherwise use the caption directly.
+// `prompt_rng` supplies the per-sample randomness (shuffle/subset/method choice).
+static std::string build_train_prompt(const sa3::PromptConfig& pcfg,
                                       const sa3::TrainAudioCaptionPair& pair, std::mt19937_64& prompt_rng) {
-    if (!pcfg.loaded) return compose_train_prompt(cfg, pair);
+    if (!pcfg.loaded) return read_text_file(pair.caption_path);
     sa3::PromptMetadata md;
     md.tags = pair.tags;
     md.tags["prompt"] = read_text_file(pair.caption_path);   // caption == the `prompt` tag
@@ -87,18 +79,26 @@ int main(int argc, char** argv) {
     try {
         sa3::load_dotenv();
         sa3::TrainConfig cfg;
+        // Match the rest of the CLI: env.cmd/env.ps1 sets this once, while an explicit flag wins.
+        if (const char* models = std::getenv("SA3_MODELS_DIR"); models && *models) cfg.models_dir = models;
         std::string err;
         if (!sa3::train_parse_args(argc, argv, cfg, err)) {
             std::fprintf(stderr, "%s", sa3::train_config_usage(argv[0]).c_str());
             if (err != "help requested") std::fprintf(stderr, "error: %s\n", err.c_str());
             return err == "help requested" ? 0 : 2;
         }
+        if (cfg.cpu_threads == 0) cfg.cpu_threads = sa3::cpu_threads_from_env();
+        sa3::train_finalize_defaults(cfg);
         if (!sa3::validate_train_config(cfg, err)) {
             std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
             return 2;
         }
         sa3::ModelPaths paths;
         if (!sa3::resolve_train_model_paths(cfg, paths, err)) {
+            std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
+            return 1;
+        }
+        if (!sa3::validate_training_base_dit_metadata(cfg, paths.dit, err)) {
             std::fprintf(stderr, "sa3-train: %s\n", err.c_str());
             return 1;
         }
@@ -147,12 +147,17 @@ int main(int argc, char** argv) {
             snap << "rank=" << cfg.rank << "\n";
             snap << "alpha=" << cfg.alpha << "\n";
             snap << "learning_rate=" << cfg.learning_rate << "\n";
+            snap << "weight_decay=" << cfg.weight_decay << "\n";
+            snap << "adam_beta1=" << cfg.adam_beta1 << "\n";
+            snap << "adam_beta2=" << cfg.adam_beta2 << "\n";
+            snap << "adam_eps=" << cfg.adam_eps << "\n";
             snap << "batch_size=" << cfg.batch_size << "\n";
+            snap << "cpu_threads=" << cfg.cpu_threads << "\n";
             snap << "frames=" << cfg.frames << "\n";
             snap << "duration_sec=" << cfg.duration_sec << "\n";
             snap << "seed=" << cfg.seed << "\n";
+            snap << "checkpoint_every=" << cfg.checkpoint_every << "\n";
             snap << "output_dir=" << cfg.output_dir << "\n";
-            snap << "prompt_mode=" << cfg.prompt_mode << "\n";
             snap << "prompt_config=" << (cfg.prompt_config_path.empty() ? "(none)" : cfg.prompt_config_path) << "\n";
             snap << "max_steps=" << cfg.max_steps << "\n";
             snap << "max_epochs=" << cfg.max_epochs << "\n";
@@ -185,9 +190,12 @@ int main(int argc, char** argv) {
             cmd << "\n";
         }
 
+        std::fprintf(stderr, "[train] output: %s\n", cfg.output_dir.c_str());
+        if (!cfg.prompt_config_path.empty())
+            std::fprintf(stderr, "[train] prompt config: %s\n", cfg.prompt_config_path.c_str());
         std::fprintf(stderr, "[train] base DiT: %s\n", paths.dit.c_str());
 
-        ggml_backend_t backend = sa3::make_backend();
+        ggml_backend_t backend = sa3::make_backend(cfg.cpu_threads);
         sa3::Tokenizer tok = sa3::Tokenizer::load(paths.tok.c_str());
         sa3::GgufModel te = sa3::load_gguf(paths.t5.c_str(), backend);
         sa3::GgufModel dit = sa3::load_gguf(paths.dit.c_str(), backend);
@@ -213,10 +221,8 @@ int main(int argc, char** argv) {
         if (have_bases) svd_bases = sa3::load_gguf(cfg.svd_bases_path.c_str(), backend);
 
         sa3::TrainLoraState lora;
-        if (!cfg.resume_adapter.empty()) {
-            if (!sa3::load_train_lora_gguf(cfg.resume_adapter, lora, err)) throw std::runtime_error(err);
-        } else if (!sa3::init_train_lora_state(dit, targets, cfg.adapter_type, cfg.rank, cfg.alpha, cfg.seed, lora, err,
-                                               have_bases ? &svd_bases : nullptr)) {
+        if (!sa3::init_train_lora_state(dit, targets, cfg.adapter_type, cfg.rank, cfg.alpha, cfg.seed, lora, err,
+                                       have_bases ? &svd_bases : nullptr)) {
             throw std::runtime_error(err);
         }
         if (have_bases) svd_bases.free();
@@ -367,7 +373,7 @@ int main(int argc, char** argv) {
                     seconds_total = std::ceil((double)decoded.n_samples / 44100.0);
                 }
                 auto p2 = tnow();
-                const std::string caption = build_train_prompt(cfg, prompt_cfg, pair, prompt_rng);
+                const std::string caption = build_train_prompt(prompt_cfg, pair, prompt_rng);
                 sa3::TrainConditioning conditioning;
                 if (!sa3::encode_train_caption_conditioning(tok, te, cond, tc, caption, (float)seconds_total, conditioning, err))
                     throw std::runtime_error(err);
@@ -575,10 +581,31 @@ int main(int argc, char** argv) {
         if (!sa3::write_train_lora_gguf(lora, final_ckpt, err)) throw std::runtime_error(err);
         std::printf("final checkpoint: %s\n", final_ckpt.c_str());
 
+        std::string preview_prompt = cfg.eval_caption;
+        if (preview_prompt.empty() && !eval_pairs.empty()) {
+            try { preview_prompt = read_text_file(eval_pairs.front().caption_path); }
+            catch (...) { /* A preview hint must never turn a successful run into a failure. */ }
+        }
+        if (preview_prompt.empty()) preview_prompt = "describe the music you want to hear";
+        if (preview_prompt.size() > 240) preview_prompt.resize(240);
+
+        const std::string final_abs = std::filesystem::absolute(final_ckpt).lexically_normal().string();
+        const std::string models_abs = std::filesystem::absolute(cfg.models_dir).lexically_normal().string();
+        const std::string preview_wav = std::filesystem::absolute(
+            std::filesystem::path(cfg.output_dir) / "preview.wav").lexically_normal().string();
+        std::ostringstream preview;
+        preview << "sa3-generate --model " << cfg.model_variant
+                << " --models-dir " << preview_cli_quote(models_abs)
+                << " --lora " << preview_cli_quote(final_abs)
+                << " --prompt " << preview_cli_quote(preview_prompt);
+        if (cfg.cpu_threads > 0) preview << " --threads " << cfg.cpu_threads;
+        preview << " --out " << preview_cli_quote(preview_wav);
+
         sa3::free_train_dit_ckpt(ck);
         sa3::free_train_dit_graph(graph);
         cond.free(); ae.free(); dit.free(); te.free();
         ggml_backend_free(backend);
+        std::printf("\n[train] try your adapter now:\n%s\n", preview.str().c_str());
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "sa3-train: %s\n", e.what());

@@ -1,5 +1,11 @@
 # stable-audio-3 in c++
 
+> **update 7/15/2026 — CUDA and CPU LoRA training are now implemented via CLI. training is currently
+> tested on CUDA and CPU only. the trainer is in very active development, so expect changes as i
+> work toward all-backend training. Vulkan is in active development, with Metal planned shortly after.**
+>
+> **nothing should be different for you at inference time, but plz let me know if any issues surface.**
+
 trying to make this as composable and extensible as i can without over-engineering it too much. my hope is that this might eventually replace the sa3 backend i already use in [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer), and start unifying that application for mac/pc. 
 
 it might also just allow us to embed sa3 directly inside a JUCE/iPlug2 project. see [docs/EMBEDDING.md](docs/EMBEDDING.md).
@@ -56,6 +62,15 @@ backend + packaging details: [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) ·
 [docs/VULKAN.md](docs/VULKAN.md) · [docs/METAL.md](docs/METAL.md) · [docs/HIP.md](docs/HIP.md).
 there's also a small HTTP server (`./server.sh` / `server.cmd`) — see [docs/SERVER.md](docs/SERVER.md).
 native adapter training is documented in [docs/TRAINING.md](docs/TRAINING.md).
+With the matching base DiT downloaded (`models.cmd --training-base` on Windows), the common training
+path is deliberately just one command after `env.cmd`:
+
+```powershell
+sa3-train --dataset C:\dev\datasets\my-training-set --steps 1500
+```
+
+The validated medium-base DoRA recipe is the default; model, optimizer, crop, conditioning, and
+output settings remain available as overrides for advanced runs.
 
 what works:
 

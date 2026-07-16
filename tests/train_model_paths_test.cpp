@@ -13,6 +13,17 @@ static int expect(bool ok, const char* msg) {
     return 0;
 }
 
+static bool write_metadata_stub(const std::filesystem::path& path, const char* finetune,
+                                bool include_marker, bool training_base) {
+    gguf_context* g = gguf_init_empty();
+    gguf_set_val_str(g, "general.architecture", "sa3-dit");
+    if (finetune) gguf_set_val_str(g, "general.finetune", finetune);
+    if (include_marker) gguf_set_val_bool(g, "dit.training_base", training_base);
+    const bool ok = gguf_write_to_file(g, path.string().c_str(), false);
+    gguf_free(g);
+    return ok;
+}
+
 int main() {
     namespace fs = std::filesystem;
     int fails = 0;
@@ -41,6 +52,29 @@ int main() {
     fails += expect(p.tok.find("vocab") != std::string::npos, "tokenizer resolved");
     fails += expect(p.cond.find("conditioner") != std::string::npos, "conditioner resolved");
     fails += expect(p.dit.find("medium-base-dit") != std::string::npos, "medium-base training dit resolved");
+
+    const fs::path marked = root / "marked-medium-base.gguf";
+    const fs::path unmarked = root / "unmarked-medium.gguf";
+    const fs::path false_marker = root / "false-medium-base.gguf";
+    const fs::path wrong_family = root / "marked-small-base.gguf";
+    fails += expect(write_metadata_stub(marked, "medium-base", true, true), "write marked metadata stub");
+    fails += expect(write_metadata_stub(unmarked, "medium-base", false, false), "write unmarked metadata stub");
+    fails += expect(write_metadata_stub(false_marker, "medium-base", true, false), "write false marker stub");
+    fails += expect(write_metadata_stub(wrong_family, "small-music-base", true, true), "write wrong-family stub");
+    err.clear();
+    fails += expect(sa3::validate_training_base_dit_metadata(cfg, marked.string(), err),
+                    "marked medium-base metadata accepted");
+    err.clear();
+    fails += expect(!sa3::validate_training_base_dit_metadata(cfg, unmarked.string(), err),
+                    "missing training-base marker rejected");
+    fails += expect(err.find("dit.training_base=true") != std::string::npos, "missing marker guidance");
+    err.clear();
+    fails += expect(!sa3::validate_training_base_dit_metadata(cfg, false_marker.string(), err),
+                    "false training-base marker rejected");
+    err.clear();
+    fails += expect(!sa3::validate_training_base_dit_metadata(cfg, wrong_family.string(), err),
+                    "wrong training-base family rejected");
+    fails += expect(err.find("medium-base") != std::string::npos, "wrong-family guidance");
 
     fs::remove(root / "stable-audio-3-medium-base-dit-1.5B-v1.0-F16.gguf");
     err.clear();

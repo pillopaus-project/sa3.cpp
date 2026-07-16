@@ -19,7 +19,6 @@ struct TrainDatasetRecord {
     std::string split;
     std::string audio_path;
     std::string caption_path;
-    std::string lyrics_path;
     std::string audio_sha256;
     double duration_seconds = 0.0;
     // Optional prompt-composition metadata (Stage 13). `tags` holds recognized tag keys
@@ -41,10 +40,8 @@ struct TrainAudioCaptionPair {
     std::string split;
     std::string audio_rel;
     std::string caption_rel;
-    std::string lyrics_rel;
     std::string audio_path;
     std::string caption_path;
-    std::string lyrics_path;
     std::string audio_sha256;
     double duration_seconds = 0.0;
     std::map<std::string, std::string> tags;   // Stage 13 prompt-composition tags (optional)
@@ -100,7 +97,6 @@ inline bool train_parse_manifest_line(const std::string& line, const std::string
     rec.split = train_json_string(root, "split");
     rec.audio_path = train_json_string(root, "audio_path");
     rec.caption_path = train_json_string(root, "caption_path");
-    rec.lyrics_path = train_json_string(root, "lyrics_path");
     rec.audio_sha256 = train_json_string(root, "audio_sha256");
     rec.duration_seconds = train_json_number(root, "duration_seconds");
     rec.relpath = train_json_string(root, "relpath");
@@ -179,10 +175,8 @@ inline bool resolve_train_pairs(const TrainSplitManifest& m, std::vector<TrainAu
         p.split = r.split.empty() ? m.split : r.split;
         p.audio_rel = r.audio_path.empty() ? audio_rel : r.audio_path;
         p.caption_rel = r.caption_path.empty() ? train_replace_extension(p.audio_rel, ".txt") : r.caption_path;
-        p.lyrics_rel = r.lyrics_path;
         p.audio_path = train_join_path(split_dir, p.audio_rel);
         p.caption_path = train_join_path(split_dir, p.caption_rel);
-        p.lyrics_path = p.lyrics_rel.empty() ? std::string() : train_join_path(split_dir, p.lyrics_rel);
         p.audio_sha256 = r.audio_sha256;
         p.duration_seconds = r.duration_seconds;
         p.tags = r.tags;

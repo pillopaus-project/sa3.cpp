@@ -173,10 +173,6 @@ target_include_directories(sa3-train-loop-compile-test PRIVATE ${CMAKE_CURRENT_S
 add_executable(sa3-train-checkpoint-test tests/train_checkpoint_test.cpp)
 target_link_libraries(sa3-train-checkpoint-test PRIVATE sa3)
 
-add_executable(sa3-train-generation-test tests/train_generation_test.cpp vendor/yyjson/yyjson.c)
-target_link_libraries(sa3-train-generation-test PRIVATE sa3)
-target_include_directories(sa3-train-generation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
-
 add_executable(sa3-train-prompt-test tests/train_prompt_test.cpp vendor/yyjson/yyjson.c)
 target_link_libraries(sa3-train-prompt-test PRIVATE sa3)
 target_include_directories(sa3-train-prompt-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/yyjson)
@@ -201,7 +197,6 @@ if(BUILD_TESTING)
     add_test(NAME sa3-train-optimizer-test COMMAND sa3-train-optimizer-test)
     add_test(NAME sa3-train-loop-compile-test COMMAND sa3-train-loop-compile-test)
     add_test(NAME sa3-train-checkpoint-test COMMAND sa3-train-checkpoint-test)
-    add_test(NAME sa3-train-generation-test COMMAND sa3-train-generation-test)
     add_test(NAME sa3-train-prompt-test COMMAND sa3-train-prompt-test)
     add_test(NAME sa3-train-inpaint-test COMMAND sa3-train-inpaint-test)
     add_test(NAME sa3-dit-lin-functional-test COMMAND sa3-dit-lin-functional-test)
@@ -215,7 +210,7 @@ if(BUILD_TESTING)
         sa3-train-audio-test sa3-train-same-compile-test sa3-train-conditioning-compile-test
         sa3-train-diffusion-test sa3-train-lora-test sa3-train-dit-compile-test
         sa3-train-optimizer-test sa3-train-loop-compile-test sa3-train-checkpoint-test
-        sa3-train-generation-test sa3-train-prompt-test sa3-train-inpaint-test
+        sa3-train-prompt-test sa3-train-inpaint-test
         sa3-dit-lin-functional-test
         PROPERTIES LABELS "non-gpu;training;lora")
 endif()
