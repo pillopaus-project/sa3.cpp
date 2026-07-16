@@ -62,7 +62,8 @@ if(SA3_HIP)
     set(GGML_HIP ON CACHE BOOL "" FORCE)
 endif()
 
-# Vanilla GGML (no custom ops needed — the whole SA3 stack is attention/linear/norm/conv1d).
+# The pinned SA3 ggml fork carries the small autodiff/backend patch stack documented in
+# docs/GGML_FORK.md; the model itself still uses standard ggml operations.
 # Fresh checkouts that were not cloned with --recurse-submodules have an empty ggml/.
 # Initialize it here so clean CMake/CTest configure runs do not depend on out-of-tree copies.
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ggml/CMakeLists.txt")
@@ -78,6 +79,35 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ggml/CMakeLists.txt")
         message(FATAL_ERROR
             "ggml checkout is missing. Run `git submodule update --init --recursive ggml` "
             "from ${CMAKE_CURRENT_SOURCE_DIR} and reconfigure.")
+    endif()
+endif()
+
+# Existing clones can retain an older submodule checkout after pulling a parent-repository update.
+# Detect that state without modifying the checkout: maintainers may intentionally have local ggml
+# work, so configuration should explain the reproducible update command rather than overwrite it.
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git" AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ggml/.git")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD:ggml
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE SA3_GGML_PIN_RESULT
+        OUTPUT_VARIABLE SA3_GGML_PIN
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C ggml rev-parse HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE SA3_GGML_HEAD_RESULT
+        OUTPUT_VARIABLE SA3_GGML_HEAD
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if(SA3_GGML_PIN_RESULT EQUAL 0 AND SA3_GGML_HEAD_RESULT EQUAL 0 AND
+       NOT SA3_GGML_PIN STREQUAL SA3_GGML_HEAD)
+        message(WARNING
+            "ggml is checked out at ${SA3_GGML_HEAD}, but this sa3.cpp revision pins "
+            "${SA3_GGML_PIN}. To use the tested dependency, run `git submodule sync --recursive` "
+            "then `git submodule update --init --recursive`. Local ggml work was not modified.")
     endif()
 endif()
 add_subdirectory(ggml)

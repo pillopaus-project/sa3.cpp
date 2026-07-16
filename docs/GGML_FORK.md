@@ -45,3 +45,41 @@ git -C sa3-clean/ggml rev-parse HEAD
 
 The parent repository intentionally pins a commit instead of following a moving branch. This keeps
 builds reproducible while still making the downstream patch lineage explicit.
+
+## Pin and release policy
+
+The gitlink in each `sa3.cpp` commit is the source of truth. Fork branches are development lines,
+not dependency selectors: do not add `branch = ...` to `.gitmodules`, and do not ask users to run
+`git submodule update --remote`.
+
+Create a new immutable annotated tag for each reviewed backend milestone. Never move an existing
+tag when Vulkan, Metal, or another backend adds patches; push a new tag and update the `sa3.cpp`
+gitlink to its exact commit. Keep every published pin reachable from the public fork so old
+`sa3.cpp` revisions remain buildable.
+
+| sa3.cpp milestone | upstream base | fork branch | pinned commit | trained backends |
+| --- | --- | --- | --- | --- |
+| trainer v1 | ggml `v0.15.3` (`eced84c`) | `feature/sa3-training-v0.15.3` | `cfec69c` | CPU, CUDA |
+
+Add a row when the parent pin changes. A Vulkan milestone, for example, receives a new immutable
+tag and row rather than changing the trainer-v1 tag.
+
+## Updating existing clones and downstream forks
+
+After merging or rebasing the latest `sa3.cpp` main branch, synchronize the cached submodule URL
+and check out the exact tested pin:
+
+```sh
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+Fresh `--recurse-submodules` clones already use the correct URL. Later pin-only updates within this
+same fork normally require only `submodule update`, but the two-command form is deliberately safe
+to repeat and also handles a future URL change.
+
+Normal downstream changes to the server, CLI, or web UI do not conflict with the ggml gitlink. A
+submodule conflict occurs only when both sides intentionally change the ggml pin; resolve that by
+choosing or integrating the desired ggml commit, validating it, and recording the resulting exact
+gitlink. Never use `--force` in general update instructions because downstream contributors may
+have local ggml work.

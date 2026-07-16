@@ -40,6 +40,19 @@ sa3-generate --model small-music --duration 12 --prompt "upbeat funk groove with
 sa3-generate --model medium --lora kev --lora keygen --prompt "neo-classical lofi hiphop 90bpm C# minor" --out song.wav
 ```
 
+updating an existing checkout or fork after pulling a new sa3.cpp revision:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+sa3.cpp pins an exact revision of its public
+[`betweentwomidnights/ggml`](https://github.com/betweentwomidnights/ggml) fork. existing checkouts
+cache the old submodule URL, so `sync` matters when the fork changes; `update` also moves ggml to
+the backend patch revision tested by that sa3.cpp commit. neither command uses a moving ggml
+branch. if you have local changes inside `ggml/`, commit or stash them first.
+
 (`--model` is a convenience over the explicit `--tok/--t5/--cond/--dit/--same` flags, which still
 work and override it per-slot. `--encoding f32` and `--models-dir DIR` adjust what it resolves.
 Use `--duration SEC` for an exact output length, or `--frames N` for the lower-level latent length.)
