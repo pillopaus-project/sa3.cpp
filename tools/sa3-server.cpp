@@ -54,6 +54,7 @@ std::string g_models_dir;
 std::string g_adapters_dir;
 std::string g_prompts_dir;
 std::string g_source_loras_dir;
+std::string g_audio_in_dir;
 int g_cpu_threads = 0;
 
 // --- async job registry (mirrors gary4local /poll_status) ---
@@ -758,9 +759,11 @@ int main(int argc, char** argv) {
     if (const char* e = getenv("SA3_ADAPTERS_DIR")) g_adapters_dir = e;
     if (const char* e = getenv("SA3_PROMPTS_DIR"))  g_prompts_dir  = e;
     if (const char* e = getenv("SA3_SOURCE_LORAS_DIR")) g_source_loras_dir = e;
+    if (const char* e = getenv("SA3_AUDIO_IN_DIR"))    g_audio_in_dir = e;
     if (g_models_dir.empty()) g_models_dir = "models";
     if (g_prompts_dir.empty()) g_prompts_dir = "prompts";
     if (g_source_loras_dir.empty()) g_source_loras_dir = "loras";
+    if (g_audio_in_dir.empty()) g_audio_in_dir = "audio-in";
     bool threads_set = false;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -773,6 +776,7 @@ int main(int argc, char** argv) {
         else if (a == "--adapters-dir") g_adapters_dir = next("");
         else if (a == "--prompts-dir")  g_prompts_dir = next("prompts");
         else if (a == "--source-loras-dir") g_source_loras_dir = next("loras");
+        else if (a == "--audio-in-dir")     g_audio_in_dir = next("audio-in");
         else if (a == "--threads")      { g_cpu_threads = atoi(next("0")); threads_set = true; }
     }
     if (threads_set && g_cpu_threads <= 0) {
@@ -782,6 +786,7 @@ int main(int argc, char** argv) {
     const std::string adir = g_adapters_dir.empty() ? g_models_dir : g_adapters_dir;
     const std::string pdir = g_prompts_dir;
     const std::string sldir = g_source_loras_dir;
+    const std::string aidir = g_audio_in_dir;
 
     httplib::Server svr;
 
@@ -809,6 +814,77 @@ int main(int argc, char** argv) {
                          + ",\"adapters_dir\":\"" + json_escape(adir)
                          + "\",\"source_loras_dir\":\"" + json_escape(sldir)
                          + "\",\"model_loaded\":" + (g_loaded.load() ? "true" : "false") + "}";
+        res.set_content(body, "application/json");
+    });
+
+    svr.Get("/init-audio", [&aidir](const httplib::Request&, httplib::Response& res) {
+        namespace fs = std::filesystem;
+        std::vector<std::string> files;
+        std::error_code ec;
+        if (fs::is_directory(aidir, ec)) {
+            for (const auto& e : fs::directory_iterator(aidir, ec)) {
+                if (ec) break;
+                if (!e.is_regular_file(ec)) continue;
+                if (lower_ascii(e.path().extension().string()) != ".wav") continue;
+                files.push_back(e.path().filename().string());
+            }
+        }
+        std::string body = "{\"success\":true,\"files\":[";
+        for (size_t i = 0; i < files.size(); i++) {
+            if (i) body += ",";
+            body += "{\"name\":\"" + json_escape(files[i]) + "\",\"path\":\"" + json_escape((fs::path(aidir) / files[i]).string()) + "\"}";
+        }
+        body += "],\"audio_in_dir\":\"" + json_escape(fs::absolute(fs::path(aidir)).string()) + "\"}";
+        res.set_content(body, "application/json");
+    });
+
+    svr.Post("/init-audio/upload", [&aidir](const httplib::Request& req, httplib::Response& res, const httplib::ContentReader& content_reader) {
+        namespace fs = std::filesystem;
+        std::string filename;
+        std::vector<char> data;
+        bool save_ok = true;
+
+        content_reader(
+            [&](const httplib::FormData& file) -> bool {
+                if (file.name == "file") {
+                    filename = file.filename;
+                    return true; // read the content
+                }
+                return false; // skip other parts
+            },
+            [&](const char* chunk, size_t chunk_len) -> bool {
+                data.insert(data.end(), chunk, chunk + chunk_len);
+                return true;
+            }
+        );
+
+        if (filename.empty() || data.empty()) {
+            res.status = 400;
+            res.set_content("{\"success\":false,\"error\":\"no file uploaded\"}", "application/json");
+            return;
+        }
+
+        std::error_code ec;
+        if (!fs::is_directory(aidir, ec)) {
+            fs::create_directories(aidir, ec);
+            if (ec) { res.status = 500; res.set_content("{\"success\":false,\"error\":\"cannot create audio-in dir\"}", "application/json"); return; }
+        }
+
+        const fs::path dest = fs::path(aidir) / filename;
+        std::ofstream ofs(dest, std::ios::binary);
+        if (!ofs) {
+            res.status = 500;
+            res.set_content("{\"success\":false,\"error\":\"cannot write file\"}", "application/json");
+            return;
+        }
+        ofs.write(data.data(), data.size());
+        if (!ofs) {
+            res.status = 500;
+            res.set_content("{\"success\":false,\"error\":\"write failed\"}", "application/json");
+            return;
+        }
+
+        std::string body = "{\"success\":true,\"name\":\"" + json_escape(filename) + "\",\"path\":\"" + json_escape(dest.string()) + "\"}";
         res.set_content(body, "application/json");
     });
 
@@ -995,7 +1071,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        const bool in_prog = status == "queued" || status == "generating" || status == "encoding";
+        const bool in_prog = status == "queued" || status == "generating" || status == "encoding" || status == "decoding" || status == "finalizing";
         std::string qs = status == "queued"
             ? "{\"status\":\"queued\",\"position\":1,\"total_queued\":1,\"message\":\"queued locally\",\"estimated_seconds\":5}"
             : in_prog ? "{\"status\":\"ready\"}" : "{}";
@@ -1017,8 +1093,8 @@ int main(int argc, char** argv) {
         res.set_content(body, "application/json");
     });
 
-    fprintf(stderr, "[sa3-server] http://%s:%d  model=%s/%s  models=%s  adapters=%s  source_loras=%s  prompts=%s  (async /poll_status; frugal default)\n",
-            host.c_str(), port, g_variant.c_str(), g_encoding.c_str(), g_models_dir.c_str(), adir.c_str(), sldir.c_str(), pdir.c_str());
+    fprintf(stderr, "[sa3-server] http://%s:%d  model=%s/%s  models=%s  adapters=%s  source_loras=%s  prompts=%s  audio_in=%s  (async /poll_status; frugal default)\n",
+            host.c_str(), port, g_variant.c_str(), g_encoding.c_str(), g_models_dir.c_str(), adir.c_str(), sldir.c_str(), pdir.c_str(), aidir.c_str());
     if (!svr.listen(host.c_str(), port)) {
         fprintf(stderr, "[sa3-server] failed to bind %s:%d\n", host.c_str(), port);
         return 1;
