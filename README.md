@@ -1,9 +1,10 @@
 # stable-audio-3 in c++
 
-> **update 7/16/2026 — Vulkan backend LoRA training is now implemented via CLI. Metal is up next.**
+> **update 7/17/2026 — Metal backend LoRA training is now implemented via CLI. Training is now
+> validated on CUDA, Vulkan, Metal, and CPU.**
 >
-> **i'm still not super happy with training speed using iGPUs. hoping to improve that over the next
-> few days once we get the Metal backend working and i can circle back.**
+> **i'm still not super happy with training speed using iGPUs. hoping to keep improving that now
+> that the first training path is working across all four backends.**
 >
 > **nothing should be different for you at inference time, but plz let me know if any issues surface.**
 
@@ -133,6 +134,9 @@ what's next:
 > formula-validated only (no trained checkpoint to a/b yet), but share the same apply path.
 
 credits:
+
+[dada-bots/underfit](https://github.com/dada-bots/underfit) is our source of truth for all things
+LoRA/DoRA training with Stable Audio 3.
 
 [acestep.cpp](https://github.com/ServeurpersoCom/acestep.cpp) was used as a bit of a guide here.
 
