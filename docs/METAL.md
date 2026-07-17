@@ -1,8 +1,9 @@
 # metal backend — validation checklist (for the m4)
 
-status: **GENERATION PASS on Apple M4.** medium f16 text-to-music generates successfully on the
-ggml Metal backend, matches CPU closely, is deterministic run-to-run, and now exits cleanly with
-ggml's default Metal residency sets enabled.
+status: **GENERATION + TRAINING PASS on Apple M4.** medium f16 text-to-music is deterministic and
+native small/medium LoRA/DoRA training completes on ggml Metal. The training path is correct and
+memory-efficient; the optimized `OUT_PROD` path brings matched 512-frame training to within 19% of
+MLX while retaining the checkpointed graph's much lower memory use.
 
 ## 0. prerequisites
 
@@ -162,7 +163,60 @@ Takeaway: ggml Metal is not the fastest short-generation path versus MLX, but it
 than the generic MLX SAME decode. For long-form UX, it roughly ties generic MLX with chunked decode
 and trails the official optimized MLX SAME-L decoder.
 
-## 7. metal optimization notes
+## 7. native training results (2026-07-16)
+
+Test machine: Apple M4, 32 GB unified memory, macOS 15.7.3. Candidate base: ggml v0.16.0 plus the
+downstream Metal training branch. The implementation adds native Metal `REPEAT_BACK`, `OUT_PROD`,
+`SILU_BACK`, `RMS_NORM_BACK`, and `SOFT_MAX_BACK`, supports the strided F32 binary views produced by
+autodiff, and fixes the non-inplace `ACC` copy dispatch for rows wider than one Metal threadgroup.
+Unsupported shapes remain explicit; training operations are not silently routed to CPU.
+
+Correctness gates passed:
+
+- all 37 registered CTest tests, including ggml's full backend-op suite;
+- Metal backend-op coverage: `OUT_PROD` 92/92, `REPEAT_BACK` 10/10, `ACC` 7/7,
+  `SILU_BACK` 1/1, `RMS_NORM_BACK` 10/10, and `SOFT_MAX_BACK` 24/24;
+- a two-step small-music run with finite losses/gradient norms and valid adapter/trainer-state files;
+- CPU trainer-state resume on Metal, with a finite resumed update and valid output checkpoints;
+- matched one-step CPU/Metal parity using the exact same latent, noise, noised input, target, and
+  conditioning tensors: aggregate adapter-gradient cosine `0.9999853`, relative L2 `0.005433`;
+- all 576 first-step adapter gradients were compared, and every `lora_A` gradient was zero on both
+  backends as required by zero-initialized `lora_B`;
+- the frozen medium inference WAV remained byte-identical before and after the training patch
+  (`SHA-256 32276296285ec02487d1882688a8baaecc58d07343028ec3a5fa40da1576a0e6`).
+
+The real 512-frame gate used the ten-track Ratatat dataset and the exact medium latents produced by
+the earlier gary4local/PyTorch job. Default medium DoRA-rows rank/alpha 16 adapts 228 DiT targets.
+Steps 2-5 exclude graph setup and pipeline compilation:
+
+| kernel | frames | sampled steps | T5 | prep | DiT fwd/bwd | AdamW | total / step | peak RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| scalar correctness baseline | 512 | 2-5 | 35.3 ms | 1.0 ms | 22,273.8 ms | 53.8 ms | **22,364.3 ms** | **5.76 GiB** |
+| 32x16 SIMD-group tile | 512 | 2-5 | 29.8 ms | 1.0 ms | 8,574.5 ms | 43.0 ms | **8,648.8 ms** | **5.75 GiB** |
+
+A matched local gary4local MLX run used the same medium RF architecture, 512-frame crop,
+DoRA-rows rank/alpha 16, and all 228 targets. MLX averaged **7.29 s/step** over steps 2-5, so the
+optimized C++ Metal path is **1.19x slower**, down from 3.07x for the scalar kernel. MLX used
+**16.27 GiB maximum RSS** and a 23.79 GiB peak memory footprint; C++ used 5.75 GiB maximum RSS and
+a 5.52 GiB peak footprint. This is a throughput comparison, not exact loss parity: the trainers
+use different latent encodes, random streams, and slightly different optimizer details.
+
+The optimized Metal `OUT_PROD` kernel stages 32x16 and 16x16 operand tiles in threadgroup memory
+and uses eight SIMD-group matrix accumulators to produce a 32x16 output tile. It retains arbitrary
+byte strides, batch broadcasting, partial tiles, F32/F32, and frozen-F16/F32 support. Relative to
+the scalar correctness kernel it improves matched medium training by **2.59x**. The two-step small
+adapter and five-step medium loss trajectory remained byte-for-byte/print-identical, the frozen
+inference WAV remained byte-identical, all 92 focused `OUT_PROD` cases passed, and the complete
+37-test suite passed. A 2,500-update run now projects to about **6 h 0 min**, versus 15 h 32 min for
+the scalar path and 5 h 4 min for MLX.
+
+The full 2,000-update Ratatat run then completed in **5 h 29 min 55 s** including startup and four
+checkpoint writes. Steps 2-2,000 averaged 9.895 s under sustained load (10.301 s over the final 500
+steps), with 5.76 GiB maximum RSS and a 5.52 GiB peak footprint. All metric records were finite,
+the final adapter matched the step-2,000 checkpoint byte-for-byte, and an 8-step/CFG-1 base render
+remained byte-identical to the retained healthy inference reference.
+
+## 8. metal optimization notes
 
 The practical Metal-specific fix was backend lifetime: keep one `ggml_backend_t` alive for every model
 buffer used by a generation, then free it after all GGUF buffers are released. That avoids repeated
