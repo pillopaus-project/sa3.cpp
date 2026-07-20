@@ -132,7 +132,7 @@ async function checkHealth() {
         const h = await apiGet("/health");
         statusEl.textContent = "✓ Connected";
         statusEl.className = "ok";
-        modelInfo.textContent = `${h.model} / ${h.encoding} ${h.loaded ? "(loaded)" : "(unloaded)"}`;
+        modelInfo.textContent = `${h.model} / ${h.actual_encoding ?? h.encoding} ${h.loaded ? "(loaded)" : "(unloaded)"}`;
         modelInfo.style.display = "";
         loadLoras();
         loadInitAudioList();
@@ -301,9 +301,34 @@ function loadTheme() {
     }
 }
 // ─── Past Songs ────────────────────────────────────────────────────────────
+const PAST_SONGS_MAX = 12;
+
+// Persist past songs, but never let a storage failure (e.g. the ~5MB localStorage
+// quota, easily hit by multi-MB base64 WAV data URIs) break the caller. Trim oldest
+// entries and retry once before giving up silently.
+function savePastSongs() {
+    try {
+        localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+    }
+    catch (e) {
+        if (pastSongs.length > 1) {
+            pastSongs = pastSongs.slice(-Math.ceil(PAST_SONGS_MAX / 2));
+            try {
+                localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+            }
+            catch (e2) {
+                // best effort: keep the in-memory list, just don't persist
+            }
+        }
+    }
+}
+
 function pushPastSong(entry) {
     pastSongs.push(entry);
-    localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+    if (pastSongs.length > PAST_SONGS_MAX) {
+        pastSongs = pastSongs.slice(pastSongs.length - PAST_SONGS_MAX);
+    }
+    savePastSongs();
     renderPastSongs();
 }
 function renderPastSongs() {
@@ -330,7 +355,7 @@ function renderPastSongs() {
         btn.addEventListener("click", () => {
             const idx = parseInt(btn.dataset.index || "0", 10);
             pastSongs.splice(idx, 1);
-            localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+            savePastSongs();
             renderPastSongs();
         });
     }
@@ -450,10 +475,17 @@ function loadPastSongs() {
 let pollTimer = null;
 async function generate() {
     clearPolling();
-    if (currentResult) {
-        pushPastSong(currentResult);
-        currentResult = null;
+    // Archive the previous result. Wrapped so a storage failure (e.g. localStorage
+    // quota) can never block the new generation or leave the button stuck disabled.
+    try {
+        if (currentResult) {
+            pushPastSong(currentResult);
+        }
     }
+    catch (e) {
+        // ignore persistence errors; keep going
+    }
+    currentResult = null;
     const body = readForm();
     lastGenParams = { ...body };
     const btn = $("#gen-btn");
@@ -473,10 +505,15 @@ async function generate() {
 }
 async function generateLoop() {
     clearPolling();
-    if (currentResult) {
-        pushPastSong(currentResult);
-        currentResult = null;
+    try {
+        if (currentResult) {
+            pushPastSong(currentResult);
+        }
     }
+    catch (e) {
+        // ignore persistence errors; keep going
+    }
+    currentResult = null;
     const body = {
         ...readForm(),
         bpm: num("#loop-bpm"),

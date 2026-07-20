@@ -71,6 +71,7 @@ interface HealthResponse {
   status: string;
   model: string;
   encoding: string;
+  actual_encoding?: string;
   loaded: boolean;
   loudness_defaults: Record<string, unknown>;
 }
@@ -261,7 +262,7 @@ async function checkHealth(): Promise<void> {
     const h = await apiGet<HealthResponse>("/health");
     statusEl.textContent = "✓ Connected";
     statusEl.className = "ok";
-    modelInfo.textContent = `${h.model} / ${h.encoding} ${h.loaded ? "(loaded)" : "(unloaded)"}`;
+    modelInfo.textContent = `${h.model} / ${h.actual_encoding ?? h.encoding} ${h.loaded ? "(loaded)" : "(unloaded)"}`;
     modelInfo.style.display = "";
     loadLoras();
     loadInitAudioList();
@@ -435,9 +436,32 @@ function loadTheme(): void {
 
 // ─── Past Songs ────────────────────────────────────────────────────────────
 
+const PAST_SONGS_MAX = 12;
+
+// Persist past songs, but never let a storage failure (e.g. the ~5MB localStorage
+// quota, easily hit by multi-MB base64 WAV data URIs) break the caller. Trim oldest
+// entries and retry once before giving up silently.
+function savePastSongs(): void {
+  try {
+    localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+  } catch {
+    if (pastSongs.length > 1) {
+      pastSongs = pastSongs.slice(-Math.ceil(PAST_SONGS_MAX / 2));
+      try {
+        localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+      } catch {
+        // best effort: keep the in-memory list, just don't persist
+      }
+    }
+  }
+}
+
 function pushPastSong(entry: PastSongEntry): void {
   pastSongs.push(entry);
-  localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+  if (pastSongs.length > PAST_SONGS_MAX) {
+    pastSongs = pastSongs.slice(pastSongs.length - PAST_SONGS_MAX);
+  }
+  savePastSongs();
   renderPastSongs();
 }
 
@@ -464,7 +488,7 @@ function renderPastSongs(): void {
     btn.addEventListener("click", () => {
       const idx = parseInt((btn as HTMLButtonElement).dataset.index || "0", 10);
       pastSongs.splice(idx, 1);
-      localStorage.setItem("sa3-past-songs", JSON.stringify(pastSongs));
+      savePastSongs();
       renderPastSongs();
     });
   }
@@ -585,7 +609,14 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 async function generate(): Promise<void> {
   clearPolling();
-  if (currentResult) { pushPastSong(currentResult); currentResult = null; }
+  // Archive the previous result. Wrapped so a storage failure (e.g. localStorage
+  // quota) can never block the new generation or leave the button stuck disabled.
+  try {
+    if (currentResult) { pushPastSong(currentResult); }
+  } catch {
+    // ignore persistence errors; keep going
+  }
+  currentResult = null;
   const body = readForm();
   lastGenParams = { ...body } as unknown as Record<string, unknown>;
   const btn = $<HTMLButtonElement>("#gen-btn");
@@ -605,7 +636,12 @@ async function generate(): Promise<void> {
 
 async function generateLoop(): Promise<void> {
   clearPolling();
-  if (currentResult) { pushPastSong(currentResult); currentResult = null; }
+  try {
+    if (currentResult) { pushPastSong(currentResult); }
+  } catch {
+    // ignore persistence errors; keep going
+  }
+  currentResult = null;
   const body: LoopGenerateRequest = {
     ...readForm(),
     bpm: num("#loop-bpm"),

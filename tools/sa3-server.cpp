@@ -50,6 +50,7 @@ std::unique_ptr<sa3::Pipeline> g_pipe;    // loaded lazily on first generate; fr
 std::atomic<bool> g_loaded{false};        // lock-free view for /health (won't block during a gen)
 std::string g_variant   = "medium";
 std::string g_encoding  = "f16";
+std::string g_actual_encoding;            // encoding of the files actually loaded (q4_km/q8_0/f16/f32)
 std::string g_models_dir;
 std::string g_adapters_dir;
 std::string g_prompts_dir;
@@ -468,11 +469,21 @@ void jobs_prune() {
     }
 }
 
+// Derive the human-readable encoding of a resolved model file path.
+static std::string detect_encoding(const std::string& p) {
+    if (p.find("Q4_KM") != std::string::npos) return "q4_km";
+    if (p.find("Q8_0")  != std::string::npos) return "q8_0";
+    if (p.find("F32")   != std::string::npos) return "f32";
+    if (p.find("F16")   != std::string::npos) return "f16";
+    return "f16";
+}
+
 // (re)load the pipeline under the caller's g_mtx. Returns false + message on failure.
 bool ensure_loaded(std::string& err) {
     if (g_pipe && g_pipe->loaded()) { g_loaded = true; return true; }
     sa3::ModelPaths mp;
     if (!sa3::ModelPaths::resolve(g_models_dir, g_variant, g_encoding, mp, err)) return false;
+    g_actual_encoding = detect_encoding(mp.dit.empty() ? mp.same : mp.dit);
     try {
         g_pipe = std::make_unique<sa3::Pipeline>();
         g_pipe->load(mp, g_cpu_threads);
@@ -745,6 +756,14 @@ std::string queue_generation(sa3::GenParams params, uint64_t seed_resolved) {
                 it->second.status = "failed"; it->second.error = e.what(); it->second.finished = sa3::wall_time_s();
             }
         }
+        // Honour the "Keep Models Resident" checkbox: unless the caller asked to keep
+        // them, free the pipeline now (full VRAM release) so the next generation reloads.
+        if (!params.keep_models) {
+            g_pipe.reset();
+            g_loaded = false;
+            fprintf(stderr, "[sa3-server] job %s unloaded models (keep_models=false)\n", sid.c_str());
+            fflush(stderr);
+        }
     }).detach();
     return sid;
 }
@@ -793,7 +812,8 @@ int main(int argc, char** argv) {
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         const bool loaded = g_loaded.load();   // atomic: never blocks behind an in-flight generation
         std::string body = "{\"status\":\"ok\",\"model\":\"" + g_variant + "\",\"encoding\":\"" +
-                           g_encoding + "\",\"loaded\":" + (loaded ? "true" : "false") +
+                           g_encoding + "\",\"actual_encoding\":\"" + g_actual_encoding +
+                           "\",\"loaded\":" + (loaded ? "true" : "false") +
                            ",\"loudness_defaults\":" + loudness_params_json(sa3::loudness_defaults_from_env()) + "}";
         res.set_content(body, "application/json");
     });
